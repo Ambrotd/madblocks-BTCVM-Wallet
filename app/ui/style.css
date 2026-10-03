@@ -47,15 +47,34 @@ body {
 button, input, select { font: inherit; color: inherit; }
 
 .top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 14px 24px;
   background: linear-gradient(120deg, var(--brand-2), var(--brand) 55%, #4c1d95);
   color: #fff;
+  box-shadow: 0 2px 14px rgba(20, 8, 40, .28);
 }
-.brand { display: flex; align-items: center; gap: 12px; }
-.mark { width: 40px; height: 40px; border-radius: 10px; box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
+.brand { display: flex; align-items: center; gap: 14px; }
+.mark { width: 40px; height: 40px; border-radius: 10px; box-shadow: 0 0 0 1px rgba(255,255,255,.35); display: block; }
+/* The madblocks mark with a Bitcoin coin on its corner. */
+.mark-wrap { position: relative; display: inline-block; }
+.coin-badge {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,.35);
+}
+.welcome .mark-wrap .mark { width: 88px; height: 88px; border-radius: 20px; }
+.welcome .mark-wrap .coin-badge { width: 36px; height: 36px; right: -12px; bottom: -12px; }
+.coin { width: 22px; height: 22px; vertical-align: -5px; margin-right: 8px; }
 .product { font-weight: 650; font-size: 16px; }
 .byline { font-size: 12px; opacity: .85; }
 .tools { display: flex; gap: 8px; align-items: center; }
@@ -140,7 +159,6 @@ input:focus, select:focus { outline: 2px solid var(--brand); outline-offset: 0; 
 .plus { color: var(--ok); }
 
 .welcome { text-align: center; padding: 36px 24px; }
-.welcome img { width: 88px; height: 88px; border-radius: 20px; }
 .welcome h1 { margin: 16px 0 6px; font-size: 22px; }
 .welcome .row { justify-content: center; margin-top: 18px; }
 

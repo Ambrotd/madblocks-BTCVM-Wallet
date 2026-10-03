@@ -243,7 +243,9 @@ function renderBanners() {
 
 function renderWelcome() {
   return h('section', { class: 'card welcome' },
-    h('img', { src: 'madblocks.svg', alt: '' }),
+    h('span', { class: 'mark-wrap' },
+      h('img', { src: 'madblocks.svg', alt: '', class: 'mark' }),
+      h('img', { src: 'bitcoin.svg', alt: '', class: 'coin-badge' })),
     h('h1', {}, t('welcomeTitle')),
     h('p', { class: 'muted' }, t('welcomeText')),
     h('div', { class: 'row' },
@@ -324,7 +326,7 @@ function updateActions() {
 
 function balanceCard(cls, title, bal, note) {
   return h('section', { class: `card balance ${cls}` },
-    h('h2', {}, title),
+    h('h2', {}, h('img', { src: cls === 'vm' ? 'btcvm.svg' : 'bitcoin.svg', alt: '', class: 'coin' }), title),
     bal
       ? h('div', {}, h('div', { class: 'amount' }, bal.confirmed, ' ', h('small', {}, 'BTC')),
         bal.pending && !/^-?0(\.0*)?$/.test(bal.pending) ? h('div', { class: 'small muted' }, `${t('pending')}: ${bal.pending} BTC`) : null)

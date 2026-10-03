@@ -64,3 +64,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 `core/tests/addresses.rs` uses the segwit address test vectors of
 [BIP 350](https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki) by Pieter Wuille, licensed under the
 2-clause BSD license.
+
+## The Bitcoin logo
+
+`app/ui/bitcoin.svg`, and its purple copy `app/ui/btcvm.svg`, are the Bitcoin logo, which is in the
+public domain ([Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Bitcoin.svg)), as BTCVM's web
+wallet ships it.

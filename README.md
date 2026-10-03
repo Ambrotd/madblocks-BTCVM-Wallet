@@ -93,7 +93,7 @@ The wallet is free. If it's useful to you, support the people behind it:
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The madblocks name and logo belong to madblocks and aren't covered by it.
 
 This is an independent wallet by madblocks. It is not made or endorsed by Metallicus, and it uses BTCVM's
 public bridge API. Its design follows [dogecoin-vm-wallet](https://github.com/paulgnz/dogecoin-vm-wallet)
