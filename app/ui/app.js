@@ -99,6 +99,11 @@ const STRINGS = {
     softwareKeyTitle: 'Windows no puede certificar que la clave de esta cartera esté en un chip TPM',
     softwareKeyText: 'Tu clave sigue cifrada y cada pago pide Windows Hello, pero la llave que la abre podría estar guardada por software en lugar de en el chip de seguridad. Pasa en equipos sin TPM o con uno antiguo. Un malware con permisos de administrador lo tendría más fácil: para cantidades grandes, usa un equipo con TPM 2.0.',
     understood: 'Entendido',
+    updateTitle: 'Hay una versión nueva: {version}',
+    updateText: 'Está firmada por madblocks y la wallet ha comprobado la firma. Al actualizar se descarga, se comprueba y la app se reinicia; tus carteras no se tocan.',
+    updateNow: 'Actualizar ahora', later: 'Más tarde', updating: 'Descargando y comprobando la nueva versión…',
+    updatesLabel: 'Buscar actualizaciones firmadas por madblocks', checkUpdate: 'Buscar ahora', upToDate: 'Ya tienes la última versión',
+    updatesNotPossible: 'Esta versión no se actualiza sola: las nuevas se publican en madblocks.tech.',
     checkBalances: 'Comprobar también mi saldo de Bitcoin con mempool.space (mempool.space conocerá tu dirección)',
     disagreeTitle: 'El puente y mempool.space no coinciden en tu saldo de Bitcoin',
     disagreeText: 'El puente dice {bridge} BTC confirmados y mempool.space {other} BTC. Puede ser un bloque que acaba de llegar; si persiste, el puente podría estar mostrando datos falsos. Tus fondos no corren riesgo por ello: cada pago se comprueba antes de firmarlo.',
@@ -209,6 +214,11 @@ const STRINGS = {
     softwareKeyTitle: 'Windows can\'t certify that this wallet\'s key is in a TPM chip',
     softwareKeyText: 'Your key is still encrypted and every payment asks for Windows Hello, but the key that opens it may be kept in software rather than in the security chip. That happens on PCs without a TPM or with an old one. Malware with administrator rights would have an easier time: for large amounts, use a PC with TPM 2.0.',
     understood: 'Got it',
+    updateTitle: 'A new version is out: {version}',
+    updateText: 'It is signed by madblocks, and the wallet checked the signature. Updating downloads it, checks it and restarts the app; your wallets aren\'t touched.',
+    updateNow: 'Update now', later: 'Later', updating: 'Downloading and checking the new version…',
+    updatesLabel: 'Look for updates signed by madblocks', checkUpdate: 'Check now', upToDate: 'You have the latest version',
+    updatesNotPossible: 'This version doesn\'t update itself: new ones are published at madblocks.tech.',
     checkBalances: 'Also check my Bitcoin balance with mempool.space (mempool.space will learn your address)',
     disagreeTitle: 'The bridge and mempool.space disagree on your Bitcoin balance',
     disagreeText: 'The bridge says {bridge} BTC confirmed and mempool.space {other} BTC. It may be a block that just arrived; if it lasts, the bridge may be showing false data. Your funds aren\'t at risk from it: every payment is checked before it is signed.',
@@ -326,6 +336,21 @@ const ERRORS_ES = [
   ['back up your key before receiving', 'haz la copia de seguridad de tu clave antes de recibir'],
   ['copy your recovery phrase or your key (WIF) first, then press the button', 'copia primero tu frase de recuperación o tu clave (WIF) y luego pulsa el botón'],
   ['there is no backup to check', 'no hay ninguna copia que comprobar'],
+  ['there is no update to install', 'no hay ninguna actualización que instalar'],
+  ['the update isn\'t signed by madblocks\' key, so it is ignored', 'la actualización no está firmada con la clave de madblocks, así que se ignora'],
+  ['the download doesn\'t match the signed manifest, so nothing was changed', 'la descarga no coincide con el manifiesto firmado, así que no se ha cambiado nada'],
+  ['can\'t reach the releases: {}', 'no se puede conectar con las versiones publicadas: {0}'],
+  ['the releases answered {}', 'las versiones publicadas respondieron {0}'],
+  ['the download failed: {}', 'la descarga ha fallado: {0}'],
+  ['can\'t write the new version next to this one ({}); download it from the releases page instead', 'no se puede guardar la versión nueva junto a esta ({0}); descárgala desde la página de versiones'],
+  ['can\'t set this version aside: {}', 'no se puede apartar esta versión: {0}'],
+  ['can\'t put the new version in place: {}', 'no se puede poner la versión nueva en su sitio: {0}'],
+  ['the new version is in place but didn\'t start ({}); open it again', 'la versión nueva ya está instalada pero no ha arrancado ({0}); vuelve a abrirla'],
+  ['the update key in this build is invalid: {}', 'la clave de actualizaciones de esta versión no es válida: {0}'],
+  ['the update\'s signature isn\'t readable', 'la firma de la actualización no se puede leer'],
+  ['the update\'s signature isn\'t text', 'la firma de la actualización no es texto'],
+  ['the update\'s manifest isn\'t readable: {}', 'el manifiesto de la actualización no se puede leer: {0}'],
+  ['the update\'s manifest is malformed', 'el manifiesto de la actualización está mal formado'],
   ['that transaction doesn\'t move the peg to the new signers (no BVMM tag naming them)', 'esa transacción no traslada el peg a los nuevos firmantes (no lleva la marca BVMM que los nombra)'],
   ['no input of that transaction carries the old signers\' signatures', 'ninguna entrada de esa transacción lleva las firmas de los firmantes antiguos'],
   ['not a signer set\'s multisig script', 'no es el script multifirma de un conjunto de firmantes'],
@@ -382,6 +407,9 @@ let modalOnClose = null;
 /** 'check' while the dialog asks for the backup back. */
 let modalKind = null;
 let checkShown = null;
+/** A newer release found, and whether the user put it off for now. */
+let updateFound = null;
+let updateLater = false;
 
 function t(key, vars) {
   let s = key.split('.').reduce((o, k) => (o == null ? o : o[k]), STRINGS[lang]);
@@ -531,6 +559,14 @@ function renderBanners() {
   }
   if (b.error) {
     out.push(banner(true, t('bannerUntrusted'), h('p', {}, tr(b.error.message)), h('p', {}, t('bannerUntrustedText'))));
+  }
+  if (updateFound && !updateLater) {
+    out.push(banner(false, t('updateTitle', { version: updateFound.version }),
+      h('p', {}, (lang === 'es' ? updateFound.notes.es : updateFound.notes.en) || ''),
+      h('p', { class: 'small' }, t('updateText')),
+      h('div', { class: 'row' },
+        h('button', { class: 'primary', type: 'button', onclick: () => { toast(t('updating')); act(() => invoke('install_update')); } }, t('updateNow')),
+        h('button', { type: 'button', onclick: () => { updateLater = true; renderBanners(); } }, t('later')))));
   }
   if (view.internalError) {
     out.push(banner(true, t('internalTitle'), h('p', {}, t('internalText')), h('p', { class: 'small mono' }, view.internalError),
@@ -1138,6 +1174,9 @@ function openSettings() {
   language.addEventListener('change', () => act(() => invoke('set_language', { language: language.value })).then(openSettings));
   const currency = h('select', { id: 'fiat' }, h('option', { value: 'EUR' }, 'EUR (€)'), h('option', { value: 'USD' }, 'USD ($)'), h('option', { value: 'none' }, t('currencyNone')));
   currency.value = view.fiatChoice || 'none';
+  const updates = h('input', { type: 'checkbox', id: 'updates' });
+  updates.checked = !!view.updatesOn;
+  updates.addEventListener('change', () => act(() => invoke('set_updates', { on: updates.checked })).then(openSettings));
   const checkBalances = h('input', { type: 'checkbox', id: 'check-balances' });
   checkBalances.checked = !!view.checkBalances;
   checkBalances.addEventListener('change', () => act(() => invoke('set_check_balances', { on: checkBalances.checked })).then(openSettings));
@@ -1154,6 +1193,15 @@ function openSettings() {
       h('button', { class: 'danger', type: 'button', onclick: () => act(() => invoke('remove_wallet')) }, t('removeWallet'))) : null,
     h('label', { for: 'fiat' }, t('currency')), currency,
     h('label', { class: 'check' }, checkBalances, t('checkBalances')),
+    view.updatesPossible
+      ? h('div', {},
+        h('label', { class: 'check' }, updates, t('updatesLabel')),
+        h('div', { class: 'row' }, h('button', { type: 'button', onclick: async () => {
+          const found = await act(() => invoke('check_update'));
+          if (found === null) toast(t('upToDate'));
+          else if (found) { updateFound = found; updateLater = false; $('modal').close(); renderBanners(); }
+        } }, t('checkUpdate'))))
+      : h('p', { class: 'small muted' }, t('updatesNotPossible')),
     h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => invoke('open_logs').catch(showError) }, t('openLogs'))),
     h('h3', {}, t('security')),
     view.hasWallet ? h('p', { class: 'small' }, `${t('tpmStatus')}: `, view.hardware === true ? t('tpmCertified') : view.hardware === false ? t('tpmNotCertified') : t('tpmUnknown')) : null,
@@ -1196,6 +1244,8 @@ loadFees();
 setInterval(loadFees, 10 * 60 * 1000);
 
 listen('view', (event) => apply(event.payload));
+listen('update', (event) => { updateFound = event.payload; updateLater = false; if (view) renderBanners(); });
+invoke('update_info').then((found) => { if (found) { updateFound = found; if (view) renderBanners(); } }).catch(() => {});
 listen('notice', (event) => {
   const n = event.payload;
   toast(t(n.confirmed ? 'received' : 'receivedPending', { amount: n.amount, chain: n.chain === 'btcvm' ? 'BTCVM' : 'Bitcoin' }));

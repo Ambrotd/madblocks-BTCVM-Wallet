@@ -418,7 +418,7 @@ impl Bridge {
     }
 }
 
-fn agent(timeout: Option<Duration>) -> ureq::Agent {
+pub(crate) fn agent(timeout: Option<Duration>) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(timeout)
         .timeout_connect(Some(Duration::from_secs(15)))

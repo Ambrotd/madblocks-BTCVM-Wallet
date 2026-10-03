@@ -15,13 +15,15 @@ mod journal;
 mod store;
 #[cfg(test)]
 mod tests;
+mod update;
 mod wallet;
+mod winapi;
 
 use btcvm_wallet_core::about;
 use serde::Serialize;
 use std::io::BufRead;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -33,6 +35,17 @@ use wallet::{BackupText, Failure, Review, Sent, View, Wallet};
 use zeroize::Zeroizing;
 
 type Shared = Arc<Wallet>;
+
+/// A newer release found, waiting for the user to install it.
+#[derive(Default)]
+struct Updates(Mutex<Option<update::Manifest>>);
+
+/// A release for the window: its version and notes.
+#[derive(Serialize, Clone)]
+struct UpdateView {
+    version: String,
+    notes: update::Notes,
+}
 
 /// Runs blocking work (the network, Windows Hello) off the main thread. A
 /// panic there comes back as a failure, logged, instead of a call that never
@@ -573,6 +586,80 @@ async fn export_history(app: AppHandle, w: State<'_, Shared>) -> Result<bool, Fa
     logged("exporting the history", saved)
 }
 
+/// Looks for a newer release now; the one found, if any.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<Option<UpdateView>, Failure> {
+    let found = blocking(update::latest).await?.map_err(failure)?;
+    Ok(remember(&app, found))
+}
+
+/// The newer release already found, if any.
+#[tauri::command]
+async fn update_info(updates: State<'_, Updates>) -> Result<Option<UpdateView>, Failure> {
+    Ok(updates
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map(update_view))
+}
+
+#[tauri::command]
+async fn set_updates(on: bool, w: State<'_, Shared>) -> Result<View, Failure> {
+    Ok(w.set_updates(on))
+}
+
+/// Installs the newer release found, then starts it and closes this one.
+#[tauri::command]
+async fn install_update(app: AppHandle, updates: State<'_, Updates>) -> Result<(), Failure> {
+    let manifest = updates
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .ok_or_else(|| failure("there is no update to install"))?;
+    let exe = logged(
+        "installing an update",
+        blocking(move || update::install(&manifest))
+            .await?
+            .map_err(failure),
+    )?;
+    std::process::Command::new(&exe)
+        .arg("--after-update")
+        .arg(std::process::id().to_string())
+        .spawn()
+        .map_err(|e| {
+            failure(format!(
+                "the new version is in place but didn't start ({e}); open it again"
+            ))
+        })?;
+    app.exit(0);
+    Ok(())
+}
+
+fn update_view(m: &update::Manifest) -> UpdateView {
+    UpdateView {
+        version: m.version.clone(),
+        notes: m.notes.clone(),
+    }
+}
+
+/// Keeps a release found and tells the window.
+fn remember(app: &AppHandle, found: Option<update::Manifest>) -> Option<UpdateView> {
+    let view = found.as_ref().map(update_view);
+    if let Some(m) = &found {
+        journal::info(&format!("version {} is available", m.version));
+    }
+    *app.state::<Updates>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = found;
+    if let Some(v) = &view {
+        let _ = app.emit("update", v);
+    }
+    view
+}
+
 /// Opens the folder with the log, for sending it to support.
 #[tauri::command]
 async fn open_logs(app: AppHandle) -> Result<(), Failure> {
@@ -604,20 +691,50 @@ async fn about_info() -> Result<About, Failure> {
     })
 }
 
+/// Says why the app can't start, in a native box, and exits.
+fn fatal(language: &str, why: &str) -> ! {
+    journal::error(&format!("can't start: {why}"));
+    let (title, text) = if language == "es" {
+        (
+            "madblocks BTCVM Wallet no puede arrancar",
+            format!(
+                "{why}\n\nSi falta Microsoft Edge WebView2 Runtime, instálalo desde https://go.microsoft.com/fwlink/p/?LinkId=2124703 y vuelve a abrir la wallet. Tus carteras no se han tocado."
+            ),
+        )
+    } else {
+        (
+            "madblocks BTCVM Wallet can't start",
+            format!(
+                "{why}\n\nIf Microsoft Edge WebView2 Runtime is missing, install it from https://go.microsoft.com/fwlink/p/?LinkId=2124703 and open the wallet again. Your wallets weren't touched."
+            ),
+        )
+    };
+    winapi::error_box(title, &text);
+    std::process::exit(1);
+}
+
 fn main() {
+    // Started by an update: the previous copy closes first, so the single
+    // instance check below doesn't take this one for a second copy.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pid) = args
+        .iter()
+        .position(|a| a == "--after-update")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|p| p.parse::<u32>().ok())
+    {
+        winapi::wait_for_exit(pid, 15_000);
+    }
     if let Ok(dir) = btcvm_wallet_vault::default_dir() {
         journal::init(&dir);
     }
     journal::info(&format!("starting version {}", env!("CARGO_PKG_VERSION")));
     let wallet: Shared = match Wallet::open("en") {
         Ok(w) => Arc::new(w),
-        Err(e) => {
-            journal::error(&format!("can't start: {e}"));
-            eprintln!("madblocks BTCVM Wallet can't start: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => fatal("en", &e),
     };
-    tauri::Builder::default()
+    let language = wallet.language();
+    let app = tauri::Builder::default()
         // First: a second copy only brings this window forward. Two copies
         // would each save over the other's records, and could spend the
         // same coins twice.
@@ -632,9 +749,29 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(wallet)
+        .manage(Updates::default())
         .setup(|app| {
             let w: Shared = app.state::<Shared>().inner().clone();
             let handle = app.handle().clone();
+            // Running: the previous version, if an update left it, can go.
+            update::clean_up();
+            // Newer releases, signed by madblocks: at start, then twice a day.
+            if update::configured() {
+                let (w, handle) = (w.clone(), handle.clone());
+                std::thread::spawn(move || {
+                    loop {
+                        if w.updates_on() {
+                            match update::latest() {
+                                Ok(found) => {
+                                    remember(&handle, found);
+                                }
+                                Err(e) => journal::warn(&format!("looking for updates: {e}")),
+                            }
+                        }
+                        std::thread::sleep(Duration::from_secs(12 * 3600));
+                    }
+                });
+            }
             // Refreshes on a timer, whatever the event stream does.
             std::thread::spawn({
                 let (w, handle) = (w.clone(), handle.clone());
@@ -702,8 +839,15 @@ fn main() {
             set_fiat,
             software_key_seen,
             export_history,
+            check_update,
+            update_info,
+            set_updates,
+            install_update,
             about_info,
         ])
-        .run(tauri::generate_context!())
-        .expect("the wallet runs");
+        .build(tauri::generate_context!());
+    match app {
+        Ok(app) => app.run(|_, _| {}),
+        Err(e) => fatal(&language, &e.to_string()),
+    }
 }

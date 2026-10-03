@@ -1,7 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["core", "vault", "app"]
+members = ["core", "vault", "app", "tools/release"]
 
 [profile.release]
 lto = true
 codegen-units = 1
+strip = true

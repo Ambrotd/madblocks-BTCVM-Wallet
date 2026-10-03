@@ -1,0 +1,96 @@
+name: release
+
+# A tag vX.Y.Z builds the standalone exe, signs it (Authenticode when a
+# certificate is set up; minisign always), writes the signed latest.json the
+# app's updater reads, and publishes them as the GitHub release. See
+# RELEASING.md.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, sign and publish the standalone exe
+    runs-on: windows-latest
+    env:
+      HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal
+      - run: rustup default stable
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Build
+        run: cargo build --release --locked -p madblocks-btcvm-wallet -p release-tool
+
+      - name: Name the exe after its version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $declared = (Get-Content app/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($version -ne $declared) { throw "the tag says $version but app/tauri.conf.json says $declared" }
+          $exe = "madblocks-btcvm-wallet-$version-x64.exe"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/madblocks-btcvm-wallet.exe "dist/$exe"
+          "VERSION=$version" >> $env:GITHUB_ENV
+          "EXE=$exe" >> $env:GITHUB_ENV
+
+      - name: Authenticode signature
+        if: env.HAS_CERTIFICATE == 'true'
+        shell: pwsh
+        env:
+          CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP/cert.pfx", [Convert]::FromBase64String($env:CERTIFICATE))
+          $signtool = Get-ChildItem "C:/Program Files (x86)/Windows Kits/10/bin/*/x64/signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+            /f "$env:RUNNER_TEMP/cert.pfx" /p $env:CERTIFICATE_PASSWORD "dist/$env:EXE"
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
+          Remove-Item "$env:RUNNER_TEMP/cert.pfx"
+
+      - name: latest.json, minisign signatures and SHA-256
+        shell: pwsh
+        env:
+          UPDATE_SECRET_KEY: ${{ secrets.UPDATE_SECRET_KEY }}
+          MADBLOCKS_UPDATE_PASSWORD: ${{ secrets.UPDATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:UPDATE_SECRET_KEY) { throw "the UPDATE_SECRET_KEY secret isn't set: no release goes out unsigned" }
+          $key = "$env:RUNNER_TEMP/madblocks-update.key"
+          Set-Content -Path $key -Value $env:UPDATE_SECRET_KEY -NoNewline
+          $tool = "target/release/release-tool.exe"
+          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$env:EXE"
+          $notes = "release-notes/$env:VERSION.json"
+          if (Test-Path $notes) {
+            & $tool manifest "dist/$env:EXE" $env:VERSION $url $notes | Out-File -Encoding utf8NoBOM dist/latest.json
+          } else {
+            & $tool manifest "dist/$env:EXE" $env:VERSION $url | Out-File -Encoding utf8NoBOM dist/latest.json
+          }
+          if ($LASTEXITCODE -ne 0) { throw "the manifest failed" }
+          & $tool sign $key dist/latest.json "dist/$env:EXE"
+          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          Remove-Item $key
+          $hash = (Get-FileHash "dist/$env:EXE" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $env:EXE" | Out-File -Encoding ascii "dist/$env:EXE.sha256"
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "release-notes/$env:VERSION.md"
+          $title = "madblocks BTCVM Wallet $env:VERSION"
+          if (Test-Path $notes) {
+            gh release create "${{ github.ref_name }}" (Get-ChildItem dist).FullName --title $title --notes-file $notes --verify-tag
+          } else {
+            gh release create "${{ github.ref_name }}" (Get-ChildItem dist).FullName --title $title --generate-notes --verify-tag
+          }

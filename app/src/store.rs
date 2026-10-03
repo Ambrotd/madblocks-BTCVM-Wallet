@@ -39,6 +39,8 @@ pub struct Settings {
     /// Check the active wallet's Bitcoin balance with mempool.space too,
     /// which then learns the address. Off unless the user turns it on.
     pub check_balances: bool,
+    /// Don't look for updates. They are looked for unless the user says.
+    pub updates_off: bool,
 
     // Single-wallet versions kept these for their only wallet. They are read
     // once, moved into its record, and never written again.

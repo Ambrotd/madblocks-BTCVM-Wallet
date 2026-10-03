@@ -1,6 +1,6 @@
 [package]
 name = "madblocks-btcvm-wallet"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "madblocks BTCVM Wallet: Bitcoin and BTCVM on Windows, and the bridge between them."
@@ -22,6 +22,8 @@ tauri-plugin-opener = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-single-instance = "2"
 qrcode = { version = "0.14", default-features = false }
+minisign-verify = "0.2"
+sha2 = "0.10"
 ureq = { version = "3", features = ["json", "platform-verifier"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -31,7 +33,7 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 
 [dev-dependencies]
 k256 = { version = "0.13", features = ["ecdsa"] }
-sha2 = "0.10"
+minisign = "0.7"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
@@ -39,4 +41,6 @@ windows = { version = "0.62", features = [
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_Ole",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
 ] }

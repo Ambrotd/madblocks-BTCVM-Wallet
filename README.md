@@ -12,10 +12,21 @@
 
 ---
 
-> **Status: in development.** The core (keys, addresses, the bridge check, building and signing
-> transactions) passes BTCVM's own test vectors, the vault works with Windows Hello, and a first version
-> of the Windows app runs. Nothing here has been audited, and BTCVM itself is in alpha with a single
-> operator. Keep amounts small.
+> **Status: public beta.** The core passes BTCVM's own test vectors and those of the BIPs it implements,
+> the vault works with Windows Hello, and the app is tested end to end against stand-ins for the bridge and
+> Windows Hello. Nothing here has had an external audit yet, and BTCVM itself is in alpha with a single
+> operator holding the bridge's keys. Keep amounts small.
+
+## Download
+
+The wallet is one standalone exe, with nothing to install: download
+`madblocks-btcvm-wallet-<version>-x64.exe` from the repository's Releases and open it. It runs on
+Windows 10 and 11 with Windows Hello set up (a PIN is enough) and Microsoft Edge WebView2 Runtime, which
+Windows 11 has. Your wallets live in `%LOCALAPPDATA%\madblocks BTCVM Wallet`, not beside the exe: moving or
+deleting the exe touches no wallet.
+
+Each release is signed by madblocks (minisign; see [RELEASING.md](RELEASING.md) to check a download), and
+the app updates itself only to a newer release with that signature, when you say so.
 
 ## What it does
 
@@ -43,6 +54,14 @@ one-for-one bridge. Payments there are final in about a second and cost a satosh
 - **Review, then sign exactly that.** Each payment is shown output by output (which wallet pays, who is
   paid, the change, a withdrawal's Bitcoin destination, the fee and its rate) before anything is signed.
   The signed transaction is read back and must match.
+- **Speed up** a Bitcoin payment that stalls: the same payment again at a higher fee, from the change (RBF).
+- **Recovery phrases.** New wallets get twelve words (BIP 39), which restore the same Bitcoin address in any
+  BIP 39 wallet (BIP 84's first address); a key (WIF) still imports. After you save a backup, the wallet
+  asks for three of its words back before the wallet can receive.
+- **Receive by QR**, see balances in euros or dollars, export the history as CSV, and get a notice (and a
+  flashing taskbar button) when a payment arrives. A deposit on its way shows as pending on BTCVM from its
+  first confirmation.
+- **In Spanish and English**, errors included.
 
 ## Security
 
@@ -70,14 +89,16 @@ short:
 | --- | --- | --- | --- |
 | `core/` | Rust (`btcvm-wallet-core`) | Keys, addresses, deposit addresses, the bridge check, building and signing transactions | Done |
 | `vault/` | Rust (`btcvm-wallet-vault`) | The key's vault: AES-256-GCM under a key that only a Windows Hello signature, from a key the TPM holds, produces | Done, checked on real Windows Hello |
-| `app/` | Tauri 2 (Rust and WebView2) | The Windows app, in Spanish and English. All networking and signing in Rust; the web view only shows. | First version |
+| `app/` | Tauri 2 (Rust and WebView2) | The Windows app, in Spanish and English. All networking and signing in Rust; the web view only shows. | Public beta, tested end to end against stand-ins |
+| `tools/release/` | Rust (`release-tool`) | The update key, `latest.json`, and minisign signatures of each release | Done |
 
 The core must agree byte for byte with BTCVM's web wallet (`chain.js` in
 [MetalBlockchain/btc-vm](https://github.com/MetalBlockchain/btc-vm)). Its tests run against the vectors the
 web wallet generates and btcd's script engine verifies (`core/tests/vectors/wallet-vectors.json`, from
 btc-vm's `cmd/btcvm/testdata`), against BIP 350's address vectors, and against the live bridge's
 `/api/info`, saved as a fixture. `scripts/sync-vectors.sh` copies a newer version of the vectors and runs
-the tests.
+the tests. Recovery phrases pass BIP 39's, BIP 32's and BIP 84's own vectors, and the signature digest
+behind following a rotation passes BIP 143's examples.
 
 ## Building
 
@@ -90,7 +111,10 @@ Build Tools with C++). With the GNU toolchain, test the rest with
 git config core.hooksPath .githooks   # refuse private keys in commits and pushes
 cargo test
 cargo run -p madblocks-btcvm-wallet   # the app (Windows, with WebView2)
+cargo build --release -p madblocks-btcvm-wallet   # the standalone exe, in target/release
 ```
+
+[RELEASING.md](RELEASING.md) covers the update key, signing and publishing a release.
 
 ## Support madblocks
 

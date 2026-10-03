@@ -308,6 +308,10 @@ pub struct View {
     pub backup_check: Option<BackupCheckView>,
     /// Whether the Bitcoin balance is checked with mempool.space too.
     pub check_balances: bool,
+    /// Whether updates are looked for, and whether this build can update
+    /// itself at all.
+    pub updates_on: bool,
+    pub updates_possible: bool,
     /// mempool.space's confirmed Bitcoin balance, BTC, when it differs from
     /// the bridge's.
     pub bitcoin_disagrees: Option<String>,
@@ -847,6 +851,8 @@ impl Wallet {
             },
             internal_error: journal::last_panic(),
             check_balances: settings.check_balances,
+            updates_on: !settings.updates_off,
+            updates_possible: crate::update::configured(),
             bitcoin_disagrees: if fresh {
                 snap.second_opinion.map(format_btc)
             } else {
@@ -1204,6 +1210,15 @@ impl Wallet {
             ));
         }
         (other != bridge).then_some(other)
+    }
+
+    pub fn updates_on(&self) -> bool {
+        !self.settings.guard().updates_off
+    }
+
+    pub fn set_updates(&self, on: bool) -> View {
+        self.update(|s| s.updates_off = !on);
+        self.view()
     }
 
     pub fn set_check_balances(&self, on: bool) -> View {
