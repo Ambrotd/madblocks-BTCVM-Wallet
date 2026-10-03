@@ -5,7 +5,7 @@
 
 use btcvm_wallet_core::bridge::{self, BridgeInfo, Pinned, Versions, peg_out_data};
 use btcvm_wallet_core::payment::{BTC_FEE_RATE, describe_outputs};
-use btcvm_wallet_core::tx::parse_tx;
+use btcvm_wallet_core::tx::{self, parse_tx};
 use btcvm_wallet_core::*;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -225,17 +225,71 @@ fn a_lying_server_changes_nothing() {
         "{e}"
     );
 
-    // A coin that isn't the wallet's is caught.
+    // A coin listed as the wallet's whose transaction pays someone else is
+    // caught.
     let other = key_for(&v.keys[1].label);
-    let e = build_payment(&other, &p.utxos, &p.raw_txs(), &p.request());
-    assert!(
-        e.is_err(),
-        "the server's list says whose coins they are, and the bytes must agree"
-    );
+    let raw = prev_tx(1, &[(500_000_000, other.destination().pk_script())]);
+    let mut listed = p.utxos.clone();
+    listed[0].txid = tx::txid(&raw).unwrap();
+    let raw_txs = HashMap::from([(listed[0].txid.clone(), hex::encode(&raw))]);
+    let e = build_payment(&key, &listed, &raw_txs, &p.request()).unwrap_err();
+    assert!(e.is_untrusted() && e.message().contains("not yours"), "{e}");
 
     // A plan can only be signed by the key whose coins it spends.
     let plan = plan_payment(&key.destination(), &p.utxos, &p.raw_txs(), &p.request()).unwrap();
     assert!(sign_plan(&other, &plan).is_err());
+}
+
+/// A minimal legacy transaction paying `outputs`, for coins to spend, as
+/// the vectors' generator makes them.
+fn prev_tx(tag: u8, outputs: &[(u64, Vec<u8>)]) -> Vec<u8> {
+    let mut raw = vec![1, 0, 0, 0, 1];
+    raw.extend([tag; 32]);
+    raw.extend([0, 0, 0, 0, 1, 0x51, 0xff, 0xff, 0xff, 0xff]);
+    raw.push(outputs.len() as u8);
+    for (value, script) in outputs {
+        raw.extend(value.to_le_bytes());
+        raw.push(script.len() as u8);
+        raw.extend(script);
+    }
+    raw.extend([0, 0, 0, 0]);
+    raw
+}
+
+#[test]
+fn fees_follow_chain_js_for_many_coins() {
+    // What chain.js charges, at 1 sat/vB, for a payment that needs 1 to 5
+    // coins of 100,000 sats (run through the web wallet's planPayment).
+    let key = key_for("btcvm vector key 1");
+    let to = key_for("btcvm vector key 2").destination();
+    for (n, want) in [(1u64, 141), (2, 209), (3, 278), (4, 346), (5, 414)] {
+        let outputs = vec![(100_000, key.destination().pk_script()); n as usize];
+        let raw = prev_tx(n as u8, &outputs);
+        let txid = tx::txid(&raw).unwrap();
+        let utxos: Vec<Utxo> = (0..n as u32)
+            .map(|vout| Utxo {
+                txid: txid.clone(),
+                vout,
+                value: "100000".into(),
+                script: hex::encode(key.destination().pk_script()),
+                confirmations: 1,
+            })
+            .collect();
+        let raw_txs = HashMap::from([(txid, hex::encode(&raw))]);
+        let req = Request {
+            chain: Chain::Bitcoin,
+            to: to.clone(),
+            amount: n * 100_000 - 2_000,
+            data: None,
+            fee_rate: 1,
+        };
+        let plan = plan_payment(&key.destination(), &utxos, &raw_txs, &req).unwrap();
+        assert_eq!(
+            (plan.spends().len() as u64, plan.fee),
+            (n, want),
+            "{n} coins"
+        );
+    }
 }
 
 #[test]
