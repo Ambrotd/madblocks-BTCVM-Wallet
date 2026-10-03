@@ -1,0 +1,25 @@
+[package]
+name = "madblocks-btcvm-wallet"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "madblocks BTCVM Wallet: Bitcoin and BTCVM on Windows, and the bridge between them."
+authors = ["madblocks <https://madblocks.tech>"]
+license = "MIT"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+btcvm-wallet-core = { path = "../core" }
+btcvm-wallet-vault = { path = "../vault" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+ureq = { version = "3", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+zeroize = "1"

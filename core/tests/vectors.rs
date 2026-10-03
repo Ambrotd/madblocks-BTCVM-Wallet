@@ -330,6 +330,8 @@ fn vector_bridge(v: &Vectors) -> VerifiedBridge {
         deposit_confirmations: 6,
         confirmation_tiers: Vec::new(),
         btc_wallet: true,
+        vm_fee: Some("0.0000001".into()),
+        payout_fee: None,
     };
     bridge::verify(&info, &pinned).unwrap()
 }

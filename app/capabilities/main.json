@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "The wallet's window: the app's own commands and the event that carries its view. No plugin, file system, shell or network access from the web view.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

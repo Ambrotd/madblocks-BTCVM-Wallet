@@ -127,6 +127,14 @@ pub struct BridgeInfo {
     /// Whether the bridge serves Bitcoin balances too.
     #[serde(default)]
     pub btc_wallet: bool,
+    /// What the bridge keeps from a deposit, in BTC (the BTCVM fee of the
+    /// release that credits it).
+    #[serde(default)]
+    pub vm_fee: Option<String>,
+    /// What a withdrawal's payout costs on Bitcoin at the current rate, in
+    /// BTC, taken from the amount paid.
+    #[serde(default)]
+    pub payout_fee: Option<String>,
 }
 
 /// What this wallet trusts about a bridge, fixed when the wallet is built:

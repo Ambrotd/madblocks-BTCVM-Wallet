@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "madblocks BTCVM Wallet",
+  "version": "0.1.0",
+  "identifier": "tech.madblocks.btcvm-wallet",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "madblocks BTCVM Wallet",
+        "width": 1040,
+        "height": 800,
+        "minWidth": 780,
+        "minHeight": 620,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "madblocks",
+    "homepage": "https://madblocks.tech",
+    "copyright": "© 2026 madblocks",
+    "category": "Finance",
+    "shortDescription": "Bitcoin and BTCVM wallet by madblocks",
+    "longDescription": "A Windows wallet for Bitcoin and BTCVM, and the bridge between them, by madblocks, XPR Network block producer and Metal Blockchain validator.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ]
+  }
+}

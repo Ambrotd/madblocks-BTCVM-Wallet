@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>madblocks BTCVM Wallet</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="madblocks.svg" alt="" class="mark">
+      <div>
+        <div class="product">madblocks BTCVM Wallet</div>
+        <div class="byline" data-t="byline"></div>
+      </div>
+    </div>
+    <nav class="tools">
+      <span id="net" class="pill"></span>
+      <button id="lang" class="ghost" type="button"></button>
+      <button id="open-about" class="ghost" type="button" data-t="about"></button>
+      <button id="open-settings" class="ghost" type="button" data-t="settings"></button>
+    </nav>
+  </header>
+
+  <div id="banners"></div>
+  <main id="main"></main>
+
+  <dialog id="modal"><div id="modal-body"></div></dialog>
+  <div id="toast" hidden></div>
+</body>
+</html>

@@ -13,8 +13,9 @@
 ---
 
 > **Status: in development.** The core (keys, addresses, the bridge check, building and signing
-> transactions) is written and passes BTCVM's own test vectors. The Windows app is next. Nothing here
-> has been audited, and BTCVM itself is in alpha with a single operator. Keep amounts small.
+> transactions) passes BTCVM's own test vectors, the vault works with Windows Hello, and a first version
+> of the Windows app runs. Nothing here has been audited, and BTCVM itself is in alpha with a single
+> operator. Keep amounts small.
 
 ## What it does
 
@@ -47,7 +48,8 @@ short:
   it's updated with the new set. It warns you, showing the old and new peg addresses and where to check them
   (a Bitcoin explorer, metalbtc.com, madblocks). Sends keep working. This is deliberate.
 - **The key stays on your PC**, encrypted to a Windows Hello key held by the TPM and decrypted only to
-  sign (in the app, which is in progress).
+  sign. It never reaches the app's web view: a key shown for backup appears in a native dialog, and one
+  being imported is read from the clipboard by the app, which then clears it.
 - **The core has no `unsafe` code and no networking**, few dependencies, and a hook and a CI job refuse
   any commit containing a private key.
 
@@ -57,7 +59,7 @@ short:
 | --- | --- | --- | --- |
 | `core/` | Rust (`btcvm-wallet-core`) | Keys, addresses, deposit addresses, the bridge check, building and signing transactions | Done |
 | `vault/` | Rust (`btcvm-wallet-vault`) | The key's vault: AES-256-GCM under a key that only a Windows Hello signature, from a key the TPM holds, produces | Done, checked on real Windows Hello |
-| `app/` | Tauri 2 (Rust and WebView2) | The Windows app. The key never reaches the web view. | Next |
+| `app/` | Tauri 2 (Rust and WebView2) | The Windows app, in Spanish and English. All networking and signing in Rust; the web view only shows. | First version |
 
 The core must agree byte for byte with BTCVM's web wallet (`chain.js` in
 [MetalBlockchain/btc-vm](https://github.com/MetalBlockchain/btc-vm)). Its tests run against the vectors the
@@ -76,6 +78,7 @@ Build Tools with C++). With the GNU toolchain, test the rest with
 ```sh
 git config core.hooksPath .githooks   # refuse private keys in commits and pushes
 cargo test
+cargo run -p madblocks-btcvm-wallet   # the app (Windows, with WebView2)
 ```
 
 ## Support madblocks
