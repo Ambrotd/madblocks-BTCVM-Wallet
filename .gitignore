@@ -1,0 +1,22 @@
+# Build output
+target/
+
+# Secrets. Never commit these; scripts/secretscan.sh and .githooks enforce it.
+*.key
+*.pem
+*.p12
+*.pfx
+*.wif
+.env
+.env.*
+
+# Windows and editors
+Thumbs.db
+desktop.ini
+.vs/
+*.suo
+*.user
+
+# The app's web view
+node_modules/
+dist/
