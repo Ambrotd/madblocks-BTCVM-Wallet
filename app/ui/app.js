@@ -178,6 +178,130 @@ const STRINGS = {
   },
 };
 
+// The Rust side's messages in Spanish. {} marks a part that varies; in the
+// Spanish, {0} is the first such part and {0*} translates it too. A message
+// not listed (an answer from the bridge's server, say) shows as it came.
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ERRORS_ES = [
+  // First: it wraps another message, and patterns below end with "{}".
+  ['{}. It may or may not have been sent: it stays in the list of payments in flight, and its coins aren\'t offered again until it settles. Its id is {}.', '{0*}. Puede que se haya enviado o no: sigue en la lista de pagos en curso y sus monedas no se ofrecen de nuevo hasta que se aclare. Su id es {1}.'],
+  // The bridge and the network.
+  ['the bridge isn\'t connected yet', 'el puente aún no está conectado'],
+  ['can\'t reach the bridge: {}', 'no se puede conectar con el puente: {0}'],
+  ['the bridge\'s answer didn\'t parse: {}', 'la respuesta del puente no se pudo leer: {0}'],
+  ['the bridge answered {}', 'el puente respondió {0}'],
+  ['no event stream', 'no hay flujo de eventos'],
+  ['the bridge\'s address must be https://, like https://metalbtc.com', 'la dirección del puente debe empezar por https://, como https://metalbtc.com'],
+  ['the bridge is for {} and {} (chain {}), not the networks this wallet is for', 'el puente es de {0} y {1} (cadena {2}), no de las redes de esta wallet'],
+  ['the bridge\'s {} address doesn\'t follow from its signers', 'la dirección {0} del puente no sale de sus firmantes'],
+  ['the bridge\'s fee rate, {} sat/vB, looks wrong', 'la comisión del puente, {0} sat/vB, parece un error'],
+  ['the bridge reports address formats that aren\'t the network\'s', 'el puente informa de formatos de dirección que no son los de la red'],
+  ['the bridge\'s deposit limits contradict each other', 'los límites de depósito del puente se contradicen'],
+  ['the bridge\'s signer set is invalid: {}', 'el conjunto de firmantes del puente no es válido: {0*}'],
+  ['the bridge\'s {} isn\'t an amount', 'el dato «{0}» del puente no es una cantidad'],
+  ['the bridge gave a deposit address that doesn\'t follow from the peg\'s signers, so nothing was sent', 'el puente dio una dirección de depósito que no sale de los firmantes del peg, así que no se ha enviado nada'],
+  ['the bridge reported transaction {}, but this wallet signed {}', 'el puente informó de la transacción {0}, pero esta wallet firmó {1}'],
+  ['the bridge\'s signers have changed, so moving coins between Bitcoin and BTCVM is paused until the wallet is updated with the new set; sends still work', 'los firmantes del puente han cambiado, así que mover fondos entre Bitcoin y BTCVM queda en pausa hasta que la wallet se actualice con el nuevo conjunto; los envíos siguen funcionando'],
+  ['signer key is not hex', 'la clave de un firmante no está en hexadecimal'],
+  ['a signer key appears twice', 'una clave de firmante aparece dos veces'],
+  ['invalid signer set', 'conjunto de firmantes no válido'],
+  ['signer keys must be compressed public keys', 'las claves de los firmantes deben ser claves públicas comprimidas'],
+  // Payments.
+  ['that is the bridge\'s own address; use Move to BTCVM, which pays your personal deposit address', 'esa es la dirección del propio puente; usa «Pasar a BTCVM», que paga a tu dirección de depósito personal'],
+  ['that is the bridge\'s reserve; use Withdraw to Bitcoin, which tags the payment with your Bitcoin address', 'esa es la reserva del puente; usa «Retirar a Bitcoin», que etiqueta el pago con tu dirección de Bitcoin'],
+  ['that is the bridge\'s own address; it can\'t be paid directly', 'esa es la dirección del propio puente; no se le puede pagar directamente'],
+  ['the smallest deposit is {} BTC; a smaller one is not credited', 'el depósito mínimo es {0} BTC; uno menor no se acredita'],
+  ['a deposit can be at most {} BTC for now; a larger one is held for a refund', 'por ahora un depósito puede ser como mucho de {0} BTC; uno mayor queda retenido para devolverlo'],
+  ['the smallest withdrawal is {} BTC; a smaller one is not paid', 'la retirada mínima es {0} BTC; una menor no se paga'],
+  ['a withdrawal can\'t pay the bridge\'s own address', 'una retirada no puede pagar a la dirección del propio puente'],
+  ['the wallet spends only its own native SegWit coins', 'la wallet solo gasta sus propias monedas SegWit nativas'],
+  ['the smallest payment is {} BTC', 'el pago mínimo es {0} BTC'],
+  ['more than 21 million BTC', 'más de 21 millones de BTC'],
+  ['a fee rate of {} sat/vB looks wrong; refusing', 'una comisión de {0} sat/vB parece un error; no se firma'],
+  ['coin values overflow', 'los valores de las monedas se desbordan'],
+  ['not enough confirmed BTC on {}: have {}, need {} including the fee', 'no hay suficientes BTC confirmados en {0}: tienes {1} y hacen falta {2} con la comisión'],
+  ['not enough confirmed BTC on {} to cover the fee', 'no hay suficientes BTC confirmados en {0} para cubrir la comisión'],
+  ['the fee would be {} BTC; refusing to sign', 'la comisión sería de {0} BTC; no se firma'],
+  ['after the fee there are {} BTC, under the minimum of {} BTC', 'tras la comisión quedan {0} BTC, por debajo del mínimo de {1} BTC'],
+  ['no transaction {}', 'no se encuentra la transacción {0}'],
+  ['transaction {} is not hex', 'la transacción {0} no está en hexadecimal'],
+  ['the server sent the wrong transaction for {}', 'el servidor envió una transacción equivocada para {0}'],
+  ['transaction {} has no output {}', 'la transacción {0} no tiene la salida {1}'],
+  ['output {} is not yours', 'la salida {0} no es tuya'],
+  ['bad txid {}', 'id de transacción incorrecto: {0}'],
+  ['transaction {}: {}', 'transacción {0}: {1*}'],
+  ['this key does not own the plan\'s coins', 'esta clave no es la dueña de las monedas del pago'],
+  ['the signed transaction differs from the one reviewed; nothing was sent', 'la transacción firmada no coincide con la revisada; no se ha enviado nada'],
+  ['the signed transaction didn\'t match what you reviewed, so it wasn\'t sent', 'la transacción firmada no coincidía con lo que revisaste, así que no se ha enviado'],
+  ['the signed transaction isn\'t hex', 'la transacción firmada no está en hexadecimal'],
+  ['trailing bytes after the transaction', 'sobran bytes tras la transacción'],
+  ['truncated transaction', 'transacción incompleta'],
+  ['transaction too large', 'transacción demasiado grande'],
+  ['that payment is no longer waiting; prepare it again', 'ese pago ya no está pendiente; prepáralo de nuevo'],
+  ['the active wallet changed; prepare the payment again', 'ha cambiado la cartera en uso; prepara el pago de nuevo'],
+  ['this wallet\'s balance hasn\'t loaded yet', 'el saldo de esta cartera aún no se ha cargado'],
+  ['your {} balance hasn\'t loaded yet', 'tu saldo de {0} aún no se ha cargado'],
+  ['unknown action', 'acción desconocida'],
+  ['unknown network', 'red desconocida'],
+  ['enter an amount like 0.0025', 'escribe una cantidad como 0.0025'],
+  // Addresses and keys.
+  ['malformed destination', 'destino mal formado'],
+  ['unsupported SegWit address', 'dirección SegWit no admitida'],
+  ['address is for a different network', 'la dirección es de otra red'],
+  ['not an address', 'no es una dirección'],
+  ['not a valid address', 'no es una dirección válida'],
+  ['push too large', 'dato demasiado grande'],
+  ['checksum mismatch: check for a typo', 'la suma de control no cuadra: revisa si hay una errata'],
+  ['invalid padding', 'relleno no válido'],
+  ['mixed-case address', 'dirección con mayúsculas y minúsculas mezcladas'],
+  ['too short', 'demasiado corta'],
+  ['not base58', 'no es base58'],
+  ['invalid character in address', 'carácter no válido en la dirección'],
+  ['a private key is 32 bytes', 'una clave privada tiene 32 bytes'],
+  ['not a valid private key', 'no es una clave privada válida'],
+  ['this is an uncompressed-key WIF; export a compressed one', 'es una WIF de clave sin comprimir; exporta una comprimida'],
+  ['not a private key', 'no es una clave privada'],
+  ['not a transaction id', 'no es un id de transacción'],
+  // The address book and wallets.
+  ['give the address a name', 'ponle un nombre a la dirección'],
+  ['a name can be at most {} characters', 'un nombre puede tener como mucho {0} caracteres'],
+  ['already saved as "{}"', 'ya está guardada como «{0}»'],
+  ['the address book is full: it holds {} addresses; delete one first', 'la libreta está llena: caben {0} direcciones; borra una antes'],
+  ['that address is no longer in the book', 'esa dirección ya no está en la libreta'],
+  ['that key is already in this app, as wallet "{}"', 'esa clave ya está en la app, como la cartera «{0}»'],
+  ['there is no such wallet', 'esa cartera no existe'],
+  ['there is no wallet on this PC', 'no hay ninguna cartera en este PC'],
+  ['this wallet\'s vault can\'t be read', 'no se puede leer la bóveda de esta cartera'],
+  ['the key in the vault isn\'t this wallet\'s address; nothing was signed', 'la clave de la bóveda no es la de la dirección de esta cartera; no se ha firmado nada'],
+  ['back up your key before receiving', 'haz la copia de seguridad de tu clave antes de recibir'],
+  ['copy your key (WIF) first, then press the button', 'copia primero tu clave (WIF) y luego pulsa el botón'],
+  ['no such link', 'ese enlace no existe'],
+  ['there is no log yet', 'todavía no hay registro'],
+  ['something went wrong inside the wallet; nothing was signed or sent. The details are in the log (Settings)', 'algo ha fallado dentro de la wallet; no se ha firmado ni enviado nada. El detalle está en el registro (Ajustes)'],
+  // The vault and Windows Hello.
+  ['the wallet\'s vault is damaged: {}', 'la bóveda de la cartera está dañada: {0*}'],
+  ['the Windows Hello key that unlocks this wallet is gone; restore the wallet from its backup', 'la clave de Windows Hello que abre esta cartera ya no existe; restáurala desde su copia de seguridad'],
+  ['Windows Hello was canceled', 'se ha cancelado Windows Hello'],
+  ['this PC already has a wallet; remove it first', 'este PC ya tiene una cartera; quítala antes'],
+  ['Windows Hello isn\'t set up on this PC: add a PIN in Settings > Accounts > Sign-in options', 'Windows Hello no está configurado en este PC: añade un PIN en Configuración > Cuentas > Opciones de inicio de sesión'],
+  ['Windows Hello\'s signature doesn\'t verify as RSA PKCS#1 v1.5; refusing to use it', 'la firma de Windows Hello no se verifica como RSA PKCS#1 v1.5; no se usa'],
+  ['the PC\'s security device is locked after too many attempts; try again later', 'el dispositivo de seguridad del PC está bloqueado tras demasiados intentos; inténtalo más tarde'],
+  ['a Windows Hello key with this name already exists', 'ya existe una clave de Windows Hello con este nombre'],
+  ['Windows Hello failed (status {})', 'Windows Hello ha fallado (estado {0})'],
+  ['that key is for {}, not this wallet ({}); remove the wallet first to use a different key', 'esa clave es de {0}, no de esta cartera ({1}); quita la cartera antes para usar otra clave'],
+  ['the vault didn\'t read back the same; nothing was stored', 'la bóveda no se leyó igual al comprobarla; no se ha guardado nada'],
+  ['it is unlocked by {}, not {}', 'se abre con {0}, no con {1}'],
+  ['the key inside isn\'t the wallet\'s address', 'la clave que contiene no es la de la dirección de la cartera'],
+  ['not a vault file: {}', 'no es un archivo de bóveda: {0}'],
+  ['the vault\'s file: {}', 'el archivo de la bóveda: {0}'],
+  ['the nonce is not 12 bytes', 'el nonce no tiene 12 bytes'],
+  ['the vault doesn\'t open with this Windows Hello key', 'la bóveda no se abre con esta clave de Windows Hello'],
+  ['the sealed key is not 32 bytes', 'la clave sellada no tiene 32 bytes'],
+  ['not a vault this version understands ({})', 'no es una bóveda que entienda esta versión ({0})'],
+  ['the {} is not hex', 'el campo {0} no está en hexadecimal'],
+  ['LOCALAPPDATA is not set', 'LOCALAPPDATA no está definida'],
+].map(([en, es]) => [new RegExp(`^${en.split('{}').map(escapeRe).join('(.+?)')}$`, 's'), es]);
+
 let lang = 'en';
 let view = null;
 let aboutInfo = null;
@@ -190,6 +314,16 @@ function t(key, vars) {
   if (s == null) s = key.split('.').reduce((o, k) => (o == null ? o : o[k]), STRINGS.en) ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
   return s;
+}
+
+/** A message from the Rust side, in Spanish when the window is. */
+function tr(message) {
+  if (lang !== 'es' || typeof message !== 'string') return message;
+  for (const [pattern, es] of ERRORS_ES) {
+    const m = message.match(pattern);
+    if (m) return es.replace(/\{(\d)(\*?)\}/g, (_, i, deep) => (deep ? tr(m[Number(i) + 1]) : m[Number(i) + 1]));
+  }
+  return message;
 }
 
 /** Builds an element. Strings become text nodes, never HTML. */
@@ -233,7 +367,7 @@ function hideToast() {
 
 function showError(e) {
   if (e && e.canceled) return toast(t('helloCanceled'));
-  const message = (e && e.message) || String(e);
+  const message = tr((e && e.message) || String(e));
   toast((e && e.untrusted ? t('untrustedPrefix') : '') + message, true);
 }
 
@@ -291,7 +425,7 @@ function renderBanners() {
   const out = [];
   const b = view.bridge;
   if (view.vaultProblem) {
-    out.push(banner(true, t('bannerVault'), h('p', {}, view.vaultProblem), h('p', {}, t('restoreHint')),
+    out.push(banner(true, t('bannerVault'), h('p', {}, tr(view.vaultProblem)), h('p', {}, t('restoreHint')),
       h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => act(() => invoke('restore_from_clipboard')) }, t('restoreClip')))));
   }
   if (b.signerChange) {
@@ -305,13 +439,13 @@ function renderBanners() {
       h('ul', {}, c.links.map((l, i) => h('li', {}, link('check', String(i), t(`sources.${l.source}`)))))));
   }
   if (b.error) {
-    out.push(banner(true, t('bannerUntrusted'), h('p', {}, b.error.message), h('p', {}, t('bannerUntrustedText'))));
+    out.push(banner(true, t('bannerUntrusted'), h('p', {}, tr(b.error.message)), h('p', {}, t('bannerUntrustedText'))));
   }
   if (view.internalError) {
     out.push(banner(true, t('internalTitle'), h('p', {}, t('internalText')), h('p', { class: 'small mono' }, view.internalError),
       h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => invoke('open_logs').catch(showError) }, t('openLogs')))));
   }
-  if (view.connectionError) out.push(banner(false, t('bannerOffline'), h('p', {}, view.connectionError)));
+  if (view.connectionError) out.push(banner(false, t('bannerOffline'), h('p', {}, tr(view.connectionError))));
   if (b.paused) out.push(banner(false, t('bannerPaused')));
   if (b.solvent === false) out.push(banner(true, t('bannerInsolvent')));
   if (view.hasWallet && view.receiveBlocked) {
@@ -449,7 +583,7 @@ function balanceCard(cls, title, bal, note, incoming) {
       ? h('div', {}, h('div', { class: 'amount' }, bal.confirmed, ' ', h('small', {}, 'BTC')),
         bal.pending && !/^-?0(\.0*)?$/.test(bal.pending) ? h('div', { class: 'small muted' }, `${t('pending')}: ${bal.pending} BTC`) : null,
         incoming ? h('div', { class: 'small muted' }, t('incomingDeposit', { amount: incoming })) : null)
-      : h('div', { class: 'muted' }, note ? t(note) : t('loading')));
+      : h('div', { class: 'muted' }, note ? tr(t(note)) : t('loading')));
 }
 
 function updateWallet() {
