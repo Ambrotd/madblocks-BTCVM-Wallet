@@ -540,9 +540,6 @@ function typedSats(id) {
   return /^(\d+(\.\d{0,8})?|\.\d{1,8})$/.test(v) ? toSats(v.startsWith('.') ? `0${v}` : v) : null;
 }
 
-/** An address in groups of four, easier to check by eye. */
-const grouped = (address) => address.replace(/(.{4})/g, '$1 ').trim();
-
 /** What the wallet knows an address as: one of its wallets, a contact, or
  *  the address shortened. */
 function nameFor(address) {
@@ -831,7 +828,7 @@ function renderPanel() {
     }
     return h('div', { class: 'receive' },
       h('p', { class: 'muted' }, t('receiveIntro')),
-      h('div', { class: 'address mono', id: 'address' }, grouped(view.address)),
+      h('div', { class: 'address mono', id: 'address' }, view.address),
       h('div', { class: 'row' },
         h('button', { class: 'primary', type: 'button', onclick: copyAddress }, t('copy')),
         h('button', { type: 'button', onclick: openQr }, t('showQr')),

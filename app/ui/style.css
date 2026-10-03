@@ -279,8 +279,9 @@ label.check { margin-top: 12px; min-height: 24px; }
 .tabs button { min-height: 40px; font-size: 14px; color: var(--ink); }
 .tabs button.on { color: var(--accent-ink); border-bottom-color: var(--accent-ink); }
 
-/* Receiving: the address large, in groups of four. */
-.receive .address { font-size: 20px; line-height: 1.6; word-spacing: .15em; word-break: normal; overflow-wrap: anywhere; margin: 6px 0 14px; }
+/* Receiving: the address large and whole, as it is paid to; one click
+   selects all of it. */
+.receive .address { font-size: 20px; line-height: 1.5; margin: 6px 0 14px; user-select: all; }
 
 /* The network, as two choices that show what each holds. */
 .segmented { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
