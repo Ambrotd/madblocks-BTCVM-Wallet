@@ -17,6 +17,11 @@ pub struct Coins<'a> {
     pub raw_txs: &'a HashMap<String, String>,
 }
 
+/// Why deposits and withdrawals stop while the bridge reports another signer
+/// set than the pinned one (see [`crate::bridge::SignerChange`]).
+pub const PAUSED_BY_SIGNER_CHANGE: &str = "the bridge's signers have changed, so moving coins between \
+     Bitcoin and BTCVM is paused until the wallet is updated with the new set; sends still work";
+
 /// A payment on `chain` to an address the user typed or pasted. Paying the
 /// peg directly is refused: without a tag the bridge can't tell whose coins
 /// they are, and they would sit there unclaimed.
@@ -29,7 +34,7 @@ pub fn plan_send(
     amount: u64,
 ) -> Result<Plan> {
     let to = decode_address(to, &bridge.net)?;
-    if to == bridge.peg {
+    if bridge.is_peg(&to) {
         return invalid(match chain {
             Chain::Bitcoin => {
                 "that is the bridge's own address; use Move to BTCVM, which pays your personal deposit address"
@@ -65,6 +70,9 @@ pub fn plan_deposit(
     amount: u64,
     told: &str,
 ) -> Result<Plan> {
+    if bridge.signer_change.is_some() {
+        return untrusted(PAUSED_BY_SIGNER_CHANGE);
+    }
     if amount < bridge.min_deposit {
         return invalid(format!(
             "the smallest deposit is {} BTC; a smaller one is not credited",
@@ -107,6 +115,9 @@ pub fn plan_withdrawal(
     amount: u64,
     to: &str,
 ) -> Result<Plan> {
+    if bridge.signer_change.is_some() {
+        return untrusted(PAUSED_BY_SIGNER_CHANGE);
+    }
     if amount < bridge.min_peg_out {
         return invalid(format!(
             "the smallest withdrawal is {} BTC; a smaller one is not paid",
@@ -114,7 +125,7 @@ pub fn plan_withdrawal(
         ));
     }
     let dest = decode_address(to, &bridge.net)?;
-    if dest == bridge.peg {
+    if bridge.is_peg(&dest) {
         return invalid("a withdrawal can't pay the bridge's own address");
     }
     plan_payment(

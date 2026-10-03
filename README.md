@@ -42,6 +42,10 @@ short:
   where deposits and withdrawals go follows from the pinned signer set, each coin's value is read from the
   transaction that created it, and fees are capped. A dishonest server can stall the wallet; it can't
   redirect a payment.
+- **The trade-off: if BTCVM's signers change, deposits and withdrawals pause.** A rotation by BTCVM's
+  operators looks the same as a hijacked server, so the wallet stops moving coins between the chains until
+  it's updated with the new set. It warns you, showing the old and new peg addresses and where to check them
+  (a Bitcoin explorer, metalbtc.com, madblocks). Sends keep working. This is deliberate.
 - **The key stays on your PC**, encrypted to a Windows Hello key held by the TPM and decrypted only to
   sign (in the app, which is in progress).
 - **The core has no `unsafe` code and no networking**, few dependencies, and a hook and a CI job refuse

@@ -1,7 +1,9 @@
 //! The bridge check: the signer set pinned for mainnet, and what happens
 //! when the bridge's `/api/info` says something else.
 
-use btcvm_wallet_core::bridge::{self, BridgeInfo, Pinned, mainnet};
+mod common;
+
+use btcvm_wallet_core::bridge::{self, BridgeInfo, CheckSource, Pinned, mainnet};
 use btcvm_wallet_core::*;
 
 /// metalbtc.com's `/api/info`, saved on 2026-10-03.
@@ -22,6 +24,7 @@ fn pinned_keys_make_the_pinned_peg_address() {
 fn the_live_bridge_checks_out() {
     let b = bridge::verify(&live_info(), &Pinned::mainnet()).unwrap();
     assert_eq!(b.peg.address(&MAINNET), mainnet::PEG_ADDRESS);
+    assert!(b.signer_change.is_none());
     assert_eq!(
         (b.min_deposit, b.max_deposit, b.min_peg_out),
         (10_000, 100_000, 5_000)
@@ -30,7 +33,62 @@ fn the_live_bridge_checks_out() {
 }
 
 #[test]
-fn a_bridge_that_says_otherwise_is_refused() {
+fn a_new_signer_set_pauses_moves_between_the_chains() {
+    // What a rotation looks like, and what a hijacked server would show:
+    // another set, with the peg and reserve addresses it makes.
+    let mut info = live_info();
+    let newcomer = Key::parse(&"11".repeat(32)).unwrap();
+    info.signers.public_keys[0] = hex::encode(newcomer.public_key());
+    let new_peg = info.signers.peg().unwrap().address(&MAINNET);
+    info.peg_address = new_peg.clone();
+    info.reserve_address = new_peg.clone();
+
+    let b = bridge::verify(&info, &Pinned::mainnet()).unwrap();
+    let change = b.signer_change.clone().expect("the change is reported");
+    assert_eq!(change.trusted_peg.address(&MAINNET), mainnet::PEG_ADDRESS);
+    assert_eq!(change.reported_peg.address(&MAINNET), new_peg);
+    assert_eq!(change.added_keys(), [hex::encode(newcomer.public_key())]);
+    assert_eq!(change.removed_keys(), [mainnet::SIGNER_KEYS[0]]);
+
+    // Where to check it: first the two pegs on a Bitcoin explorer, which
+    // the bridge's server doesn't control.
+    let links = change.where_to_check(&MAINNET);
+    assert_eq!(links[0].source, CheckSource::OldPegOnBitcoin);
+    assert!(links[0].url.ends_with(mainnet::PEG_ADDRESS));
+    assert_eq!(links[1].source, CheckSource::NewPegOnBitcoin);
+    assert!(links[1].url.ends_with(&new_peg));
+    assert!(
+        links
+            .iter()
+            .any(|l| l.source == CheckSource::WalletMaker && l.url == about::WEBSITE)
+    );
+
+    // Deposits and withdrawals stop. Sends go on, but to neither peg.
+    let mine = Key::parse(&"22".repeat(32)).unwrap().destination();
+    let (utxos, raw) = common::coins(&mine, &[1_000_000]);
+    let coins = Coins {
+        utxos: &utxos,
+        raw_txs: &raw,
+    };
+    let told = b
+        .signers
+        .deposit_destination(&mine)
+        .unwrap()
+        .address(&MAINNET);
+    let e = plan_deposit(&b, &mine, coins, 50_000, &told).unwrap_err();
+    assert!(e.is_untrusted() && e.message().contains("paused"), "{e}");
+    let elsewhere = newcomer.destination().address(&MAINNET);
+    let e = plan_withdrawal(&b, &mine, coins, 50_000, &elsewhere).unwrap_err();
+    assert!(e.is_untrusted() && e.message().contains("paused"), "{e}");
+    for chain in [Chain::Bitcoin, Chain::Btcvm] {
+        assert!(plan_send(&b, chain, &mine, coins, &elsewhere, 50_000).is_ok());
+        assert!(plan_send(&b, chain, &mine, coins, &new_peg, 50_000).is_err());
+        assert!(plan_send(&b, chain, &mine, coins, mainnet::PEG_ADDRESS, 50_000).is_err());
+    }
+}
+
+#[test]
+fn a_bridge_that_contradicts_itself_is_refused() {
     let pinned = Pinned::mainnet();
     let refused = |change: &dyn Fn(&mut BridgeInfo)| {
         let mut info = live_info();
@@ -38,24 +96,14 @@ fn a_bridge_that_says_otherwise_is_refused() {
         bridge::verify(&info, &pinned).unwrap_err()
     };
 
-    // Its own keys in place of the signers', consistently: the peg and
-    // reserve addresses made from them.
+    // Other signers, or the same keys in another order, or a lower
+    // threshold, with the old peg and reserve addresses: they don't follow.
     let attacker = Key::parse(&"11".repeat(32)).unwrap();
-    let e = refused(&|i| {
-        i.signers.public_keys[0] = hex::encode(attacker.public_key());
-        let peg = i.signers.peg().unwrap().address(&MAINNET);
-        i.peg_address = peg.clone();
-        i.reserve_address = peg;
-    });
-    assert!(
-        e.is_untrusted() && e.message().contains("signer set"),
-        "{e}"
-    );
-
-    // The same keys in another order, or a lower threshold, are a
-    // different peg.
+    let e = refused(&|i| i.signers.public_keys[0] = hex::encode(attacker.public_key()));
+    assert!(e.is_untrusted() && e.message().contains("follow"), "{e}");
     assert!(refused(&|i| i.signers.public_keys.swap(0, 1)).is_untrusted());
     assert!(refused(&|i| i.signers.required = 1).is_untrusted());
+    assert!(refused(&|i| i.signers.public_keys.clear()).is_untrusted());
 
     // A reserve or peg address that isn't the signers'.
     let elsewhere = attacker.destination().address(&MAINNET);

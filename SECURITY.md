@@ -17,7 +17,8 @@ balances, coins and broadcasting, but nothing that moves coins rests on its word
 | --- | --- |
 | hand out its own deposit address | derives your deposit address from the signer set pinned in the wallet, and refuses a different one |
 | point withdrawals at its own address | pays only the reserve made from the pinned signer set, and builds the tag naming your Bitcoin address itself |
-| claim another signer set, network or chain | checks `/api/info` against what is pinned, and moves nothing between the chains if anything differs |
+| claim another network or chain | checks `/api/info` against what is pinned, and refuses the bridge |
+| claim another signer set | pauses deposits and withdrawals and warns you, with where to check it (below) |
 | inflate a coin's value to turn it into fee | reads each value from the transaction that created the coin, after checking those bytes hash to its id |
 | push the fee up | caps it at 1,000 sat/vB and 250,000 sats a payment |
 | get something else signed | shows each payment output by output, signs exactly that, and reads the signed bytes back to compare |
@@ -41,10 +42,26 @@ view the interface runs in.
   signed it could read the process's memory, and at any time it could change what the screen shows or swap
   an address you copied. Check the destination on the review screen against the one you were given, by a
   channel other than the clipboard when it matters.
-- **A rotation of the signer set.** When BTCVM's operators rotate it, the peg address changes and the wallet
-  refuses to move coins between the chains until it is updated with the new set. Verifying a rotation from
-  the old keys' signatures is planned.
 - **BTCVM's consensus.** It runs on a single validator during the alpha.
+
+## The trade-off: a change of signers pauses deposits and withdrawals
+
+When BTCVM's operators rotate the signer set, the bridge starts reporting keys the wallet doesn't know, and
+a new peg address. A hijacked server would look exactly the same, and the wallet can't tell the two apart
+on its own. So, deliberately:
+
+- **Deposits and withdrawals pause** until the wallet is updated with the new set. Sends on Bitcoin and on
+  BTCVM keep working, and paying either peg directly stays refused.
+- **The wallet warns you** as soon as it sees the change. It shows the old and new peg addresses and which
+  keys changed. It also links where to check them without relying on the bridge's server:
+  - a Bitcoin explorer, where the BTC locked at the old peg should have moved to the new one, which only the
+    old signers could have done;
+  - BTCVM's rotation procedure (`docs/ROTATION.md` in btc-vm), and its docs and explorer at metalbtc.com,
+    which are run by the same operators as the bridge;
+  - madblocks, who publish each signer set they have verified with the wallet's updates.
+
+Verifying a rotation automatically, from the old keys' signatures on the transaction that moves the
+reserve, is planned.
 
 ## Rules for the code
 

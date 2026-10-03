@@ -130,13 +130,11 @@ pub struct BridgeInfo {
 }
 
 /// What this wallet trusts about a bridge, fixed when the wallet is built:
-/// its networks, its chain and the peg's signer set. A bridge reporting
-/// anything else is refused, so a hijacked server or connection can't swap
-/// in its own keys and collect deposits or withdrawals.
-///
-/// When BTCVM's operators rotate the signer set (`docs/ROTATION.md` in
-/// btc-vm), the peg address changes and the wallet needs an update with the
-/// new set before it moves coins across again.
+/// its networks, its chain and the peg's signer set. A bridge on other
+/// networks is refused outright. One reporting another signer set is
+/// accepted for sends only, with a [`SignerChange`] to warn about, so a
+/// hijacked server or connection can't swap in its own keys and collect
+/// deposits or withdrawals.
 #[derive(Debug, Clone)]
 pub struct Pinned {
     pub net: Network,
@@ -183,15 +181,129 @@ impl Pinned {
 #[derive(Debug, Clone)]
 pub struct VerifiedBridge {
     pub net: Network,
+    /// The pinned signer set.
     pub signers: Signers,
-    /// The peg: the reserve on BTCVM and the locked BTC on Bitcoin.
+    /// The peg the pinned set makes: the reserve on BTCVM and the locked BTC
+    /// on Bitcoin.
     pub peg: Destination,
+    /// Set when the bridge reports another signer set. Deposits and
+    /// withdrawals are then refused until the wallet is updated; sends on
+    /// either chain still work.
+    pub signer_change: Option<SignerChange>,
     pub min_deposit: u64,
     /// 0 when there is no cap.
     pub max_deposit: u64,
     pub min_peg_out: u64,
     /// sat/vB, within the wallet's own bounds.
     pub btc_fee_rate: u64,
+}
+
+impl VerifiedBridge {
+    /// Whether `dest` is the bridge's own address, pinned or newly reported.
+    /// Coins paid there without a tag would sit unclaimed.
+    pub fn is_peg(&self, dest: &Destination) -> bool {
+        *dest == self.peg
+            || self
+                .signer_change
+                .as_ref()
+                .is_some_and(|c| *dest == c.reported_peg)
+    }
+}
+
+/// The bridge reports another signer set than the one pinned in the wallet,
+/// and its peg and reserve addresses follow from that set.
+///
+/// That is what a rotation by BTCVM's operators looks like
+/// (`docs/ROTATION.md` in btc-vm), and also what a hijacked server would
+/// show; the wallet can't tell them apart on its own. So it moves nothing
+/// between the chains until it is updated with the new set, and the app
+/// warns, showing what changed and where to check it without relying on the
+/// bridge's server. This is deliberate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignerChange {
+    pub trusted: Signers,
+    pub trusted_peg: Destination,
+    pub reported: Signers,
+    pub reported_peg: Destination,
+}
+
+/// Somewhere to check a signer change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckSource {
+    /// The old peg address on a Bitcoin explorer. After a real rotation its
+    /// BTC has moved to the new peg, which only the old signers could do.
+    OldPegOnBitcoin,
+    /// The new peg address on a Bitcoin explorer.
+    NewPegOnBitcoin,
+    /// BTCVM's documentation at metalbtc.com, run by the same operators as
+    /// the bridge's API.
+    BtcvmDocs,
+    /// BTCVM's explorer, which links each locked output to Bitcoin.
+    BtcvmExplorer,
+    /// How BTCVM's operators rotate the signer set.
+    RotationProcedure,
+    /// madblocks, who publish each signer set they have verified with the
+    /// wallet's updates.
+    WalletMaker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckLink {
+    pub source: CheckSource,
+    pub url: String,
+}
+
+impl SignerChange {
+    /// Keys the bridge now lists that the trusted set doesn't have.
+    pub fn added_keys(&self) -> Vec<String> {
+        key_difference(&self.reported, &self.trusted)
+    }
+
+    /// Keys of the trusted set the bridge no longer lists.
+    pub fn removed_keys(&self) -> Vec<String> {
+        key_difference(&self.trusted, &self.reported)
+    }
+
+    /// Where to check the change, most independent of the bridge first.
+    pub fn where_to_check(&self, net: &Network) -> Vec<CheckLink> {
+        let link = |source, url: String| CheckLink { source, url };
+        let mut links = Vec::new();
+        if net.hrp == MAINNET.hrp {
+            let explorer =
+                |d: &Destination| format!("https://mempool.space/address/{}", d.address(net));
+            links.push(link(
+                CheckSource::OldPegOnBitcoin,
+                explorer(&self.trusted_peg),
+            ));
+            links.push(link(
+                CheckSource::NewPegOnBitcoin,
+                explorer(&self.reported_peg),
+            ));
+        }
+        links.extend([
+            link(
+                CheckSource::RotationProcedure,
+                "https://github.com/MetalBlockchain/btc-vm/blob/main/docs/ROTATION.md".into(),
+            ),
+            link(CheckSource::BtcvmDocs, "https://metalbtc.com/docs".into()),
+            link(
+                CheckSource::BtcvmExplorer,
+                "https://metalbtc.com/explorer".into(),
+            ),
+            link(CheckSource::WalletMaker, crate::about::WEBSITE.into()),
+        ]);
+        links
+    }
+}
+
+/// The keys of `a` that `b` doesn't have, compared without regard to case.
+fn key_difference(a: &Signers, b: &Signers) -> Vec<String> {
+    let theirs: HashSet<String> = b.public_keys.iter().map(|k| k.to_lowercase()).collect();
+    a.public_keys
+        .iter()
+        .filter(|k| !theirs.contains(&k.to_lowercase()))
+        .cloned()
+        .collect()
 }
 
 /// Checks the bridge's `/api/info` against what the wallet trusts.
@@ -211,24 +323,36 @@ pub fn verify(info: &BridgeInfo, pinned: &Pinned) -> Result<VerifiedBridge> {
             return untrusted("the bridge reports address formats that aren't the network's");
         }
     }
-    let trusted = pinned.signers.witness_script()?;
-    if info.signers.witness_script().ok() != Some(trusted) {
-        return untrusted(
-            "the bridge's signer set is not the one this wallet trusts; \
-             update the wallet before moving coins between the chains",
-        );
-    }
+    // The bridge's own story must hold together: its peg and reserve are
+    // the addresses its signers make. Only then is a signer set other than
+    // the pinned one a change to warn about, rather than a broken bridge.
     let peg = pinned.signers.peg()?;
+    let reported = info
+        .signers
+        .witness_script()
+        .map_err(|e| Error::Untrusted(format!("the bridge's signer set is invalid: {e}")))?;
+    let changed = reported != pinned.signers.witness_script()?;
+    let reported_peg = if changed {
+        info.signers.peg()?
+    } else {
+        peg.clone()
+    };
     for (name, address) in [
         ("peg", &info.peg_address),
         ("reserve", &info.reserve_address),
     ] {
-        if decode_address(address, net).ok().as_ref() != Some(&peg) {
+        if decode_address(address, net).ok().as_ref() != Some(&reported_peg) {
             return untrusted(format!(
                 "the bridge's {name} address doesn't follow from its signers"
             ));
         }
     }
+    let signer_change = changed.then(|| SignerChange {
+        trusted: pinned.signers.clone(),
+        trusted_peg: peg.clone(),
+        reported: info.signers.clone(),
+        reported_peg,
+    });
     let amount = |name: &str, s: &str| {
         parse_btc(s).map_err(|_| Error::Untrusted(format!("the bridge's {name} isn't an amount")))
     };
@@ -248,6 +372,7 @@ pub fn verify(info: &BridgeInfo, pinned: &Pinned) -> Result<VerifiedBridge> {
         net: *net,
         signers: pinned.signers.clone(),
         peg,
+        signer_change,
         min_deposit,
         max_deposit,
         min_peg_out,

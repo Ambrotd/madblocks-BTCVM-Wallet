@@ -28,7 +28,7 @@ pub mod wallet;
 
 pub use address::{Destination, Kind, MAINNET, Network, TESTNET, decode_address};
 pub use amount::{SATS_PER_BTC, format_btc, parse_btc};
-pub use bridge::{BridgeInfo, Pinned, Signers, VerifiedBridge};
+pub use bridge::{BridgeInfo, Pinned, SignerChange, Signers, VerifiedBridge};
 pub use keys::Key;
 pub use payment::{
     Chain, OutputView, Plan, Request, Signed, Utxo, build_payment, plan_payment, sign_plan,

@@ -3,6 +3,8 @@
 //! commit 42bc2a2), where btcd's script engine and the Go bridge code verify
 //! them; copy a new version here with `scripts/sync-vectors.sh`.
 
+mod common;
+
 use btcvm_wallet_core::bridge::{self, BridgeInfo, Pinned, Versions, peg_out_data};
 use btcvm_wallet_core::payment::{BTC_FEE_RATE, describe_outputs};
 use btcvm_wallet_core::tx::{self, parse_tx};
@@ -228,7 +230,7 @@ fn a_lying_server_changes_nothing() {
     // A coin listed as the wallet's whose transaction pays someone else is
     // caught.
     let other = key_for(&v.keys[1].label);
-    let raw = prev_tx(1, &[(500_000_000, other.destination().pk_script())]);
+    let raw = common::prev_tx(1, &[(500_000_000, other.destination().pk_script())]);
     let mut listed = p.utxos.clone();
     listed[0].txid = tx::txid(&raw).unwrap();
     let raw_txs = HashMap::from([(listed[0].txid.clone(), hex::encode(&raw))]);
@@ -240,22 +242,6 @@ fn a_lying_server_changes_nothing() {
     assert!(sign_plan(&other, &plan).is_err());
 }
 
-/// A minimal legacy transaction paying `outputs`, for coins to spend, as
-/// the vectors' generator makes them.
-fn prev_tx(tag: u8, outputs: &[(u64, Vec<u8>)]) -> Vec<u8> {
-    let mut raw = vec![1, 0, 0, 0, 1];
-    raw.extend([tag; 32]);
-    raw.extend([0, 0, 0, 0, 1, 0x51, 0xff, 0xff, 0xff, 0xff]);
-    raw.push(outputs.len() as u8);
-    for (value, script) in outputs {
-        raw.extend(value.to_le_bytes());
-        raw.push(script.len() as u8);
-        raw.extend(script);
-    }
-    raw.extend([0, 0, 0, 0]);
-    raw
-}
-
 #[test]
 fn fees_follow_chain_js_for_many_coins() {
     // What chain.js charges, at 1 sat/vB, for a payment that needs 1 to 5
@@ -263,19 +249,7 @@ fn fees_follow_chain_js_for_many_coins() {
     let key = key_for("btcvm vector key 1");
     let to = key_for("btcvm vector key 2").destination();
     for (n, want) in [(1u64, 141), (2, 209), (3, 278), (4, 346), (5, 414)] {
-        let outputs = vec![(100_000, key.destination().pk_script()); n as usize];
-        let raw = prev_tx(n as u8, &outputs);
-        let txid = tx::txid(&raw).unwrap();
-        let utxos: Vec<Utxo> = (0..n as u32)
-            .map(|vout| Utxo {
-                txid: txid.clone(),
-                vout,
-                value: "100000".into(),
-                script: hex::encode(key.destination().pk_script()),
-                confirmations: 1,
-            })
-            .collect();
-        let raw_txs = HashMap::from([(txid, hex::encode(&raw))]);
+        let (utxos, raw_txs) = common::coins(&key.destination(), &vec![100_000; n as usize]);
         let req = Request {
             chain: Chain::Bitcoin,
             to: to.clone(),
