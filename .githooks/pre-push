@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses pushes while any commit holds a private key.
+exec bash "$(git rev-parse --show-toplevel)/scripts/secretscan.sh" history
