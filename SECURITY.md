@@ -31,7 +31,14 @@ because the bridge couldn't tell whose coins they were.
 encrypted to a Windows Hello key held by the TPM. It is decrypted only to sign a payment, after Windows
 Hello (PIN, fingerprint or face), and wiped from memory afterwards. The vault file is useless on another
 PC. It lives in `%LOCALAPPDATA%`, which doesn't roam or sync to OneDrive. The key never reaches the web
-view the interface runs in.
+view the interface runs in. Each wallet in the app has its own key, vault and Windows Hello key, and its
+own backup.
+
+**Lookalike addresses.** Address poisoning pays you dust from an address that starts and ends like one you
+use, hoping you copy it from your history next time. At review, a destination that shares its first six
+and last four characters with a saved address or one of your wallets, without being it, is flagged in red.
+Names in the address book are stripped of invisible and bidirectional characters, so a name can't disguise
+the address next to it, and the book is checked again each time it's read.
 
 ## What it doesn't protect against
 
@@ -78,5 +85,8 @@ reserve, is planned.
 - `scripts/secretscan.sh` refuses WIFs, extended private keys and PEM private keys in any commit. It runs
   as the pre-commit and pre-push hooks and in CI. The vectors' keys are SHA-256 of public labels and are
   allowed by path.
-- No telemetry. The app's requests go only to the bridge you choose, with a User-Agent naming the wallet
-  and its version and nothing about you.
+- No telemetry. The app's requests go to the bridge you choose and, for two things it doesn't serve, to
+  mempool.space: Bitcoin fee estimates, every ten minutes, which say nothing about you; and an old
+  transaction a pruned node no longer has (from blockstream.info if mempool.space doesn't answer), which
+  tells that service the transaction's id. Every request carries a User-Agent naming the wallet and its
+  version and nothing about you.

@@ -66,13 +66,13 @@ fn texts(language: &str) -> Texts {
     if language == "es" {
         Texts {
             backup_title: "Tu clave privada",
-            backup_body: "Esta es la clave de tu wallet (WIF):\n\n{key}\n\nGuárdala en un gestor de contraseñas o escríbela en papel. Quien la vea puede llevarse tus BTC; nunca la compartas. Sin ella, si pierdes este PC o se restablece Windows Hello, perderás tus fondos.",
+            backup_body: "Esta es la clave de la cartera {wallet} (WIF):\n\n{key}\n\nGuárdala en un gestor de contraseñas o escríbela en papel. Quien la vea puede llevarse tus BTC; nunca la compartas. Sin ella, si pierdes este PC o se restablece Windows Hello, perderás tus fondos.",
             copy: "Copiar la clave",
             copied: "Copiada. Se borrará del portapapeles en un minuto, y Windows no la guarda en el historial del portapapeles (Win+V) ni la sincroniza. Pégala ya en tu gestor de contraseñas.",
             saved: "La he guardado",
             not_yet: "Todavía no",
-            remove_title: "Quitar la wallet de este PC",
-            remove_body: "Se borrará la clave de este PC (después de Windows Hello). Si no tienes copia de seguridad, perderás tus BTC para siempre. ¿Quitarla?",
+            remove_title: "Quitar la cartera de este PC",
+            remove_body: "Se borrará de este PC la clave de la cartera {wallet} (después de Windows Hello). Si no tienes copia de seguridad, perderás sus BTC para siempre. ¿Quitarla?",
             remove: "Quitar",
             cancel: "Cancelar",
             change_title: "Han cambiado los firmantes del puente",
@@ -81,13 +81,13 @@ fn texts(language: &str) -> Texts {
     } else {
         Texts {
             backup_title: "Your private key",
-            backup_body: "This is your wallet's key (WIF):\n\n{key}\n\nKeep it in a password manager or write it on paper. Anyone who sees it can take your BTC; never share it. Without it, if you lose this PC or Windows Hello is reset, your funds are gone.",
+            backup_body: "This is the key of wallet {wallet} (WIF):\n\n{key}\n\nKeep it in a password manager or write it on paper. Anyone who sees it can take your BTC; never share it. Without it, if you lose this PC or Windows Hello is reset, your funds are gone.",
             copy: "Copy the key",
             copied: "Copied. It will be cleared from the clipboard in a minute, and Windows keeps it out of clipboard history (Win+V) and cloud sync. Paste it into your password manager now.",
             saved: "I've saved it",
             not_yet: "Not yet",
             remove_title: "Remove the wallet from this PC",
-            remove_body: "The key will be deleted from this PC (after Windows Hello). Without a backup, your BTC are gone for good. Remove it?",
+            remove_body: "The key of wallet {wallet} will be deleted from this PC (after Windows Hello). Without a backup, its BTC are gone for good. Remove it?",
             remove: "Remove",
             cancel: "Cancel",
             change_title: "The bridge's signers have changed",
@@ -96,16 +96,19 @@ fn texts(language: &str) -> Texts {
     }
 }
 
-/// Shows the key in a native dialog, outside the web view, and says whether
-/// the user saved it. "Copy" puts it on the clipboard the way password
-/// managers do (see `clip`) and shows the dialog again.
-fn show_backup(app: &AppHandle, language: &str, wif: &str) -> bool {
+/// Shows the key of `wallet` (its name and address) in a native dialog,
+/// outside the web view, and says whether the user saved it. "Copy" puts it
+/// on the clipboard the way password managers do (see `clip`) and shows the
+/// dialog again.
+fn show_backup(app: &AppHandle, language: &str, wallet: &str, wif: &str) -> bool {
     let t = texts(language);
     let mut note = "";
     loop {
         let body = Zeroizing::new(format!(
             "{}{}{note}",
-            t.backup_body.replace("{key}", wif),
+            t.backup_body
+                .replace("{wallet}", wallet)
+                .replace("{key}", wif),
             if note.is_empty() {
                 ""
             } else {
@@ -182,11 +185,17 @@ async fn refresh(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> 
 }
 
 #[tauri::command]
-async fn create_wallet(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
+async fn create_wallet(
+    name: String,
+    app: AppHandle,
+    w: State<'_, Shared>,
+) -> Result<View, Failure> {
     let w = w.inner().clone();
     blocking(move || {
         let language = w.language();
-        w.create(|wif| show_backup(&app, &language, wif))
+        w.create(&name, |wif| {
+            show_backup(&app, &language, &w.active_label(), wif)
+        })
     })
     .await
 }
@@ -196,7 +205,7 @@ async fn backup(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
     blocking(move || {
         let language = w.language();
-        w.backup(|wif| show_backup(&app, &language, wif))
+        w.backup(|wif| show_backup(&app, &language, &w.active_label(), wif))
     })
     .await
 }
@@ -213,10 +222,14 @@ fn take_key_from_clipboard(app: &AppHandle) -> Result<Zeroizing<String>, Failure
 }
 
 #[tauri::command]
-async fn import_from_clipboard(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
+async fn import_from_clipboard(
+    name: String,
+    app: AppHandle,
+    w: State<'_, Shared>,
+) -> Result<View, Failure> {
     let text = take_key_from_clipboard(&app)?;
     let w = w.inner().clone();
-    blocking(move || w.import(text)).await
+    blocking(move || w.import(&name, text)).await
 }
 
 #[tauri::command]
@@ -231,9 +244,10 @@ async fn remove_wallet(app: AppHandle, w: State<'_, Shared>) -> Result<View, Fai
     let w = w.inner().clone();
     blocking(move || {
         let t = texts(&w.language());
+        let wallet = w.active_label();
         w.remove(|| {
             app.dialog()
-                .message(t.remove_body)
+                .message(t.remove_body.replace("{wallet}", &wallet))
                 .title(t.remove_title)
                 .kind(MessageDialogKind::Warning)
                 .buttons(MessageDialogButtons::OkCancelCustom(
@@ -247,20 +261,71 @@ async fn remove_wallet(app: AppHandle, w: State<'_, Shared>) -> Result<View, Fai
 }
 
 #[tauri::command]
+async fn select_wallet(id: String, w: State<'_, Shared>) -> Result<View, Failure> {
+    let w = w.inner().clone();
+    blocking(move || w.select(&id)).await
+}
+
+#[tauri::command]
+async fn rename_wallet(id: String, name: String, w: State<'_, Shared>) -> Result<View, Failure> {
+    w.rename(&id, &name)
+}
+
+#[tauri::command]
+async fn add_contact(
+    name: String,
+    address: String,
+    chain: String,
+    w: State<'_, Shared>,
+) -> Result<View, Failure> {
+    w.add_contact(&name, &address, &chain)
+}
+
+#[tauri::command]
+async fn rename_contact(
+    address: String,
+    chain: String,
+    name: String,
+    w: State<'_, Shared>,
+) -> Result<View, Failure> {
+    w.rename_contact(&address, &chain, &name)
+}
+
+#[tauri::command]
+async fn remove_contact(
+    address: String,
+    chain: String,
+    w: State<'_, Shared>,
+) -> Result<View, Failure> {
+    w.remove_contact(&address, &chain)
+}
+
+#[tauri::command]
+async fn fee_options(w: State<'_, Shared>) -> Result<wallet::FeeOptions, Failure> {
+    let w = w.inner().clone();
+    Ok(blocking(move || w.fee_options()).await)
+}
+
+#[tauri::command]
 async fn prepare_send(
     chain: String,
     to: String,
     amount: String,
+    fee_rate: Option<u64>,
     w: State<'_, Shared>,
 ) -> Result<Review, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.prepare_send(&chain, &to, &amount)).await
+    blocking(move || w.prepare_send(&chain, &to, &amount, fee_rate)).await
 }
 
 #[tauri::command]
-async fn prepare_deposit(amount: String, w: State<'_, Shared>) -> Result<Review, Failure> {
+async fn prepare_deposit(
+    amount: String,
+    fee_rate: Option<u64>,
+    w: State<'_, Shared>,
+) -> Result<Review, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.prepare_deposit(&amount)).await
+    blocking(move || w.prepare_deposit(&amount, fee_rate)).await
 }
 
 #[tauri::command]
@@ -278,10 +343,11 @@ async fn max_amount(
     action: String,
     chain: String,
     to: String,
+    fee_rate: Option<u64>,
     w: State<'_, Shared>,
 ) -> Result<String, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.max_amount(&action, &chain, &to)).await
+    blocking(move || w.max_amount(&action, &chain, &to, fee_rate)).await
 }
 
 #[tauri::command]
@@ -409,6 +475,12 @@ fn main() {
             view,
             refresh,
             create_wallet,
+            select_wallet,
+            rename_wallet,
+            add_contact,
+            rename_contact,
+            remove_contact,
+            fee_options,
             backup,
             import_from_clipboard,
             restore_from_clipboard,

@@ -29,10 +29,20 @@ one-for-one bridge. Payments there are final in about a second and cost a satosh
   from the bridge that doesn't match.
 - **Withdraw to Bitcoin.** The wallet pays the bridge's reserve on BTCVM with a tag naming your Bitcoin
   address. The reserve address comes from the same pinned keys.
-- **Send** on either network, chosen explicitly each time.
-- **Review, then sign exactly that.** Each payment is shown output by output (who is paid, the change, a
-  withdrawal's Bitcoin destination, the fee) before anything is signed. The signed transaction is read
-  back and must match.
+- **Send** on either network, chosen explicitly each time. **Max** fills in everything a payment can
+  move after the fee.
+- **Several wallets.** Each is its own key, with its own address, backup and Windows Hello key. Pick one
+  from the header; the others appear as destinations, to move funds between them.
+- **An address book**, with each address saved for the network you use it on: an exchange that only
+  watches Bitcoin never sees what you send it on BTCVM. A destination that looks like a saved address or one
+  of your wallets without being it (address poisoning) is flagged in red at review.
+- **Choose the Bitcoin fee** for sends and deposits: the bridge's estimate, mempool.space's speeds, or a
+  rate of your own, within the wallet's bounds. A low fee never puts funds at risk; it only confirms later,
+  and under the network's minimum the payment is refused and nothing leaves. BTCVM's fee is fixed, and the
+  bridge sets the fee of a withdrawal's Bitcoin payout.
+- **Review, then sign exactly that.** Each payment is shown output by output (which wallet pays, who is
+  paid, the change, a withdrawal's Bitcoin destination, the fee and its rate) before anything is signed.
+  The signed transaction is read back and must match.
 
 ## Security
 

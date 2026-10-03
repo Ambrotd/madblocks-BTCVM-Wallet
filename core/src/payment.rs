@@ -28,7 +28,8 @@ pub const MAX_FEE: u64 = 250_000;
 pub const MAX_FEE_RATE: u64 = 1_000;
 
 /// Which chain a payment is on. They share formats, not coins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Chain {
     Bitcoin,
     Btcvm,

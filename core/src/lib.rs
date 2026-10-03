@@ -19,6 +19,7 @@
 pub mod about;
 pub mod address;
 pub mod amount;
+pub mod book;
 pub mod bridge;
 pub mod encoding;
 pub mod keys;

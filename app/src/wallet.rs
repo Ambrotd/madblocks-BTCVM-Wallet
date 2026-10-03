@@ -1,13 +1,19 @@
-//! The wallet behind the window: what it shows and what it can do.
+//! The wallets behind the window: what it shows and what it can do.
 //!
-//! Every payment is planned by the core for review and kept here; the web
-//! view gets a description and an id, never a key or anything it could
-//! change before signing. Signing asks for Windows Hello, reads the signed
-//! transaction back, and records the payment before it is sent.
+//! Each wallet is its own key, with its own vault, Windows Hello key and
+//! backup, and one address, the same on Bitcoin and BTCVM. One is active at
+//! a time. Every payment is planned by the core for review and kept here;
+//! the web view gets a description and an id, never a key or anything it
+//! could change before signing. Signing asks for Windows Hello, reads the
+//! signed transaction back, and records the payment before it is sent.
 
-use crate::api::{AddressView, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry};
-use crate::store::{self, Outgoing, Settings, Withdrawal};
+use crate::api::{
+    AddressView, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry, FeeEstimates,
+};
+use crate::store::{self, FIRST, Outgoing, Settings, WalletRecord, Withdrawal};
+use btcvm_wallet_core::book::{self, Contact};
 use btcvm_wallet_core::bridge::{self as peg, CheckSource, Pinned, peg_out_data};
+use btcvm_wallet_core::payment::MAX_FEE_RATE;
 use btcvm_wallet_core::tx::parse_tx;
 use btcvm_wallet_core::{
     BridgeInfo, Chain, Coins, Destination, Key, Kind as AddressKind, MAINNET, Plan, Request,
@@ -74,16 +80,25 @@ impl From<ApiError> for Failure {
     }
 }
 
+fn paused() -> Failure {
+    btcvm_wallet_core::Error::Untrusted(btcvm_wallet_core::wallet::PAUSED_BY_SIGNER_CHANGE.into())
+        .into()
+}
+
 #[derive(Default)]
 struct Snapshot {
     info: Option<BridgeInfo>,
     bridge: Option<VerifiedBridge>,
     bridge_error: Option<Failure>,
     status: Option<BridgeStatus>,
+    /// The wallet the views below belong to.
+    wallet: Option<String>,
     btcvm: Option<AddressView>,
     bitcoin: Option<AddressView>,
     bitcoin_note: Option<String>,
     deposits: Vec<DepositEntry>,
+    /// Every wallet's balances, by id: Bitcoin, then BTCVM.
+    balances: HashMap<String, (Option<Balance>, Option<Balance>)>,
     connection_error: Option<String>,
     updated: u64,
 }
@@ -109,6 +124,7 @@ impl Kind {
 #[derive(Clone)]
 struct Pending {
     id: u64,
+    wallet: String,
     kind: Kind,
     plan: Plan,
     to: String,
@@ -117,7 +133,6 @@ struct Pending {
 
 pub struct Wallet {
     dir: PathBuf,
-    vault: Vault<WindowsHello>,
     settings: Mutex<Settings>,
     bridge: Mutex<Arc<Bridge>>,
     snapshot: Mutex<Snapshot>,
@@ -137,7 +152,11 @@ pub struct View {
     pub server: String,
     pub language: String,
     pub has_wallet: bool,
-    /// Set when the vault can't be opened and only the backup can help.
+    pub wallets: Vec<WalletView>,
+    pub wallet_id: Option<String>,
+    pub wallet_name: String,
+    /// Set when the active wallet's vault can't be opened and only the
+    /// backup can help.
     pub vault_problem: Option<String>,
     /// Hidden while a new wallet's key isn't backed up.
     pub address: Option<String>,
@@ -150,9 +169,24 @@ pub struct View {
     pub deposits: Vec<DepositEntry>,
     pub withdrawals: Vec<Withdrawal>,
     pub in_flight: Vec<Outgoing>,
+    pub address_book: Vec<Contact>,
     pub bridge: BridgeView,
     pub connection_error: Option<String>,
     pub updated: u64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletView {
+    pub id: String,
+    /// Empty for the window's default name.
+    pub name: String,
+    /// Hidden while its key isn't backed up.
+    pub address: Option<String>,
+    pub active: bool,
+    pub needs_backup: bool,
+    pub bitcoin: Option<Balance>,
+    pub btcvm: Option<Balance>,
 }
 
 #[derive(Serialize, Clone)]
@@ -208,6 +242,20 @@ pub struct LinkView {
     pub url: String,
 }
 
+/// The Bitcoin fee rates to offer, sat/vB: the bridge's estimate, and
+/// mempool.space's when it answers.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeOptions {
+    pub bridge: Option<u64>,
+    pub fastest: Option<u64>,
+    pub half_hour: Option<u64>,
+    pub hour: Option<u64>,
+    pub economy: Option<u64>,
+    pub minimum: Option<u64>,
+    pub max: u64,
+}
+
 /// A payment for review: everything it does, in plain terms.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -215,11 +263,19 @@ pub struct Review {
     pub id: u64,
     pub kind: &'static str,
     pub chain: &'static str,
+    pub wallet_name: String,
     /// Who is paid: the address typed, the deposit address, or for a
     /// withdrawal the Bitcoin address the bridge pays.
     pub to: String,
+    /// What the wallet knows of `to`, and the name it knows it by.
+    pub to_known: &'static str,
+    pub to_name: Option<String>,
+    /// A wallet or contact `to` looks like without being it.
+    pub lookalike: Option<String>,
     pub amount: String,
     pub fee: String,
+    /// sat/vB, on Bitcoin.
+    pub fee_rate: Option<u64>,
     /// What leaves the wallet: the amount and the fee.
     pub total: String,
     pub outputs: Vec<OutputRow>,
@@ -279,17 +335,34 @@ fn source_name(source: CheckSource) -> &'static str {
     }
 }
 
+fn balance(v: Option<&AddressView>) -> Option<Balance> {
+    v.map(|v| Balance {
+        confirmed: v.confirmed.clone(),
+        pending: v.pending.clone(),
+    })
+}
+
+/// A wallet's name as stored: cleaned like an address book name, or empty
+/// for the default.
+fn wallet_name(name: &str) -> Outcome<String> {
+    if name.trim().is_empty() {
+        return Ok(String::new());
+    }
+    Ok(book::clean_name(name)?)
+}
+
 impl Wallet {
     pub fn open(language: &str) -> Result<Wallet, String> {
         let dir = btcvm_wallet_vault::default_dir().map_err(|e| e.to_string())?;
-        let settings = store::load(&dir);
+        let mut settings = store::load(&dir);
+        // The book is checked again each time it's read.
+        settings.address_book = book::parse(&settings.address_book, &MAINNET);
         let server = settings
             .server
             .clone()
             .unwrap_or_else(|| DEFAULT_SERVER.into());
         let language = settings.language.clone().unwrap_or_else(|| language.into());
-        Ok(Wallet {
-            vault: Vault::new(&dir, WindowsHello),
+        let wallet = Wallet {
             dir,
             settings: Mutex::new(settings),
             bridge: Mutex::new(Arc::new(Bridge::new(&server))),
@@ -299,7 +372,11 @@ impl Wallet {
             refresh_again: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             language: Mutex::new(language),
-        })
+        };
+        // Saves a single-wallet install in the new form at once.
+        let settings = wallet.settings.lock().unwrap().clone();
+        wallet.save(&settings);
+        Ok(wallet)
     }
 
     pub fn language(&self) -> String {
@@ -323,12 +400,6 @@ impl Wallet {
         self.bridge().events()
     }
 
-    /// The wallet's address, from the vault file. Shown only; the key is
-    /// checked against it every time the vault opens.
-    fn address(&self) -> Option<String> {
-        self.vault.address().ok()
-    }
-
     fn bridge(&self) -> Arc<Bridge> {
         self.bridge.lock().unwrap().clone()
     }
@@ -339,51 +410,169 @@ impl Wallet {
         }
     }
 
+    /// Changes the settings and saves them.
+    fn update<R>(&self, f: impl FnOnce(&mut Settings) -> R) -> R {
+        let mut settings = self.settings.lock().unwrap();
+        let result = f(&mut settings);
+        let copy = settings.clone();
+        drop(settings);
+        self.save(&copy);
+        result
+    }
+
+    fn active_id(&self) -> Option<String> {
+        self.settings.lock().unwrap().active.clone()
+    }
+
+    fn vault(&self, id: &str) -> Vault<WindowsHello> {
+        Vault::new(store::vault_dir(&self.dir, id), WindowsHello)
+    }
+
+    /// A wallet's address, from its vault file. Shown only; the key is
+    /// checked against it every time the vault opens.
+    fn address_of(&self, id: &str) -> Option<String> {
+        self.vault(id).address().ok()
+    }
+
+    fn address(&self) -> Option<String> {
+        self.active_id().and_then(|id| self.address_of(&id))
+    }
+
+    fn record(&self, id: &str) -> Option<WalletRecord> {
+        self.settings
+            .lock()
+            .unwrap()
+            .wallets
+            .iter()
+            .find(|w| w.id == id)
+            .cloned()
+    }
+
+    /// A wallet's name for the user: its own, or the default the window
+    /// shows for it.
+    fn display_name(&self, record: &WalletRecord) -> String {
+        if !record.name.is_empty() {
+            return record.name.clone();
+        }
+        let es = self.language() == "es";
+        if record.id == FIRST {
+            (if es { "Principal" } else { "Main" }).into()
+        } else {
+            let id = record.id.get(..4).unwrap_or(&record.id);
+            format!("{} {id}", if es { "Cartera" } else { "Wallet" })
+        }
+    }
+
+    /// The active wallet as the user knows it, for native dialogs: its name
+    /// and address.
+    pub fn active_label(&self) -> String {
+        let Some(id) = self.active_id() else {
+            return String::new();
+        };
+        let name = self
+            .record(&id)
+            .map(|r| self.display_name(&r))
+            .unwrap_or_default();
+        match self.address_of(&id) {
+            Some(address) => format!("{name} ({address})"),
+            None => name,
+        }
+    }
+
+    /// Changes the record of wallet `id`, if it still exists, and saves.
+    fn update_record(&self, id: &str, f: impl FnOnce(&mut WalletRecord)) {
+        self.update(|s| {
+            if let Some(w) = s.wallets.iter_mut().find(|w| w.id == id) {
+                f(w);
+            }
+        });
+    }
+
     pub fn view(&self) -> View {
         let settings = self.settings.lock().unwrap().clone();
         let snap = self.snapshot.lock().unwrap();
-        let vault_problem = match self.vault.address() {
-            Ok(_) => None,
-            Err(VaultError::Missing) => None,
-            Err(e) => Some(e.to_string()),
-        };
-        let address = self.address();
-        let receive_blocked = settings.backup_required && !settings.backup_confirmed;
-        let balance = |v: &Option<AddressView>| {
-            v.as_ref().map(|v| Balance {
-                confirmed: v.confirmed.clone(),
-                pending: v.pending.clone(),
-            })
-        };
+        let active = settings.active.clone();
+        let record = active
+            .as_ref()
+            .and_then(|id| settings.wallets.iter().find(|w| &w.id == id))
+            .cloned()
+            .unwrap_or_default();
+        let vault_problem = active
+            .as_ref()
+            .and_then(|id| match self.vault(id).address() {
+                Ok(_) => None,
+                Err(e) => Some(e.to_string()),
+            });
+        let receive_blocked = record.backup_required && !record.backup_confirmed;
+        let fresh = snap.wallet == active;
         let mut history: Vec<HistoryRow> = Vec::new();
-        for (chain, view) in [("btcvm", &snap.btcvm), ("bitcoin", &snap.bitcoin)] {
-            if let Some(v) = view {
-                history.extend(v.history.iter().take(25).map(|h| HistoryRow {
-                    chain,
-                    txid: h.txid.clone(),
-                    net: h.net.clone(),
-                    confirmations: h.confirmations,
-                    time: h.time,
-                }));
+        if fresh {
+            for (chain, view) in [("btcvm", &snap.btcvm), ("bitcoin", &snap.bitcoin)] {
+                if let Some(v) = view {
+                    history.extend(v.history.iter().take(25).map(|h| HistoryRow {
+                        chain,
+                        txid: h.txid.clone(),
+                        net: h.net.clone(),
+                        confirmations: h.confirmations,
+                        time: h.time,
+                    }));
+                }
             }
         }
         history.sort_by_key(|h| std::cmp::Reverse(h.time.unwrap_or(i64::MAX)));
+        let wallets = settings
+            .wallets
+            .iter()
+            .map(|w| {
+                let needs_backup = w.backup_required && !w.backup_confirmed;
+                let (bitcoin, btcvm) = snap.balances.get(&w.id).cloned().unwrap_or((None, None));
+                WalletView {
+                    id: w.id.clone(),
+                    name: w.name.clone(),
+                    address: self.address_of(&w.id).filter(|_| !needs_backup),
+                    active: Some(&w.id) == active.as_ref(),
+                    needs_backup,
+                    bitcoin,
+                    btcvm,
+                }
+            })
+            .collect();
         View {
             version: env!("CARGO_PKG_VERSION"),
             server: self.bridge().base().to_string(),
             language: self.language(),
-            has_wallet: self.vault.has_key(),
+            has_wallet: !settings.wallets.is_empty(),
+            wallets,
+            wallet_id: active.clone(),
+            wallet_name: record.name.clone(),
             vault_problem,
-            address: address.filter(|_| !receive_blocked),
+            address: self.address().filter(|_| !receive_blocked),
             receive_blocked,
-            backup_confirmed: settings.backup_confirmed,
-            bitcoin: balance(&snap.bitcoin),
-            btcvm: balance(&snap.btcvm),
-            bitcoin_note: snap.bitcoin_note.clone(),
+            backup_confirmed: record.backup_confirmed,
+            bitcoin: if fresh {
+                balance(snap.bitcoin.as_ref())
+            } else {
+                None
+            },
+            btcvm: if fresh {
+                balance(snap.btcvm.as_ref())
+            } else {
+                None
+            },
+            bitcoin_note: if fresh {
+                snap.bitcoin_note.clone()
+            } else {
+                None
+            },
             history,
-            deposits: snap.deposits.clone(),
-            withdrawals: settings.withdrawals.clone(),
-            in_flight: settings.outgoing.clone(),
+            deposits: if fresh {
+                snap.deposits.clone()
+            } else {
+                Vec::new()
+            },
+            withdrawals: record.withdrawals.clone(),
+            in_flight: record.outgoing.clone(),
+            address_book: settings.address_book.clone(),
             bridge: self.bridge_view(&snap),
             connection_error: snap.connection_error.clone(),
             updated: snap.updated,
@@ -453,13 +642,37 @@ impl Wallet {
         }
     }
 
+    /// A wallet's address on both chains. On Bitcoin the bridge answers 404
+    /// until the address is registered, which happens here the first time.
+    fn fetch(
+        &self,
+        api: &Bridge,
+        info: &BridgeInfo,
+        address: &str,
+    ) -> (Option<AddressView>, Option<AddressView>, Option<String>) {
+        let btcvm = api.address(Chain::Btcvm, address).ok();
+        if !info.btc_wallet {
+            return (None, btcvm, Some("unavailable".into()));
+        }
+        match api.address(Chain::Bitcoin, address) {
+            Ok(v) => (Some(v), btcvm, None),
+            Err(e) if e.status == 404 => {
+                let _ = api.watch_bitcoin(address);
+                let v = api.address(Chain::Bitcoin, address).ok();
+                let note = v.is_none().then(|| "watching".to_string());
+                (v, btcvm, note)
+            }
+            Err(e) if e.status == 503 => (None, btcvm, Some("syncing".into())),
+            Err(e) => (None, btcvm, Some(e.message)),
+        }
+    }
+
     fn refresh_once(&self) {
         let api = self.bridge();
         let info = match api.info() {
             Ok(info) => info,
             Err(e) => {
-                let mut snap = self.snapshot.lock().unwrap();
-                snap.connection_error = Some(e.message);
+                self.snapshot.lock().unwrap().connection_error = Some(e.message);
                 return;
             }
         };
@@ -468,91 +681,88 @@ impl Wallet {
             Err(e) => (None, Some(Failure::from(e))),
         };
         let status = api.status().ok();
-        let (mut btcvm, mut bitcoin, mut bitcoin_note, mut deposits) =
-            (None, None, None, Vec::new());
-        if let Some(address) = self.address() {
-            btcvm = api.address(Chain::Btcvm, &address).ok();
-            if info.btc_wallet {
-                match api.address(Chain::Bitcoin, &address) {
-                    Ok(v) => bitcoin = Some(v),
-                    // First time: register the address with the bridge.
-                    Err(e) if e.status == 404 => {
-                        let _ = api.watch_bitcoin(&address);
-                        bitcoin = api.address(Chain::Bitcoin, &address).ok();
-                        if bitcoin.is_none() {
-                            bitcoin_note = Some("watching".into());
-                        }
-                    }
-                    Err(e) if e.status == 503 => bitcoin_note = Some("syncing".into()),
-                    Err(e) => bitcoin_note = Some(e.message),
-                }
-            } else {
-                bitcoin_note = Some("unavailable".into());
-            }
-            deposits = api.deposits(&address).unwrap_or_default();
-            self.follow_withdrawals(&api);
-            self.settle(Chain::Btcvm, btcvm.as_ref());
-            self.settle(Chain::Bitcoin, bitcoin.as_ref());
-        }
-        let mut snap = self.snapshot.lock().unwrap();
-        *snap = Snapshot {
-            info: Some(info),
-            bridge,
-            bridge_error,
-            status,
-            btcvm,
-            bitcoin,
-            bitcoin_note,
-            deposits,
-            connection_error: None,
-            updated: now(),
+        let active = self.active_id();
+        let mut snap = Snapshot {
+            wallet: active.clone(),
+            ..Snapshot::default()
         };
-    }
-
-    /// Checks each withdrawal not yet confirmed on Bitcoin with the bridge.
-    fn follow_withdrawals(&self, api: &Bridge) {
-        let open: Vec<String> = self
+        let ids: Vec<String> = self
             .settings
             .lock()
             .unwrap()
-            .withdrawals
+            .wallets
             .iter()
+            .map(|w| w.id.clone())
+            .collect();
+        for id in ids {
+            let Some(address) = self.address_of(&id) else {
+                continue;
+            };
+            let (bitcoin, btcvm, note) = self.fetch(&api, &info, &address);
+            snap.balances.insert(
+                id.clone(),
+                (balance(bitcoin.as_ref()), balance(btcvm.as_ref())),
+            );
+            if Some(&id) == active.as_ref() {
+                snap.deposits = api.deposits(&address).unwrap_or_default();
+                self.follow_withdrawals(&api, &id);
+                self.settle(&id, Chain::Btcvm, btcvm.as_ref());
+                self.settle(&id, Chain::Bitcoin, bitcoin.as_ref());
+                snap.btcvm = btcvm;
+                snap.bitcoin = bitcoin;
+                snap.bitcoin_note = note;
+            }
+        }
+        snap.info = Some(info);
+        snap.bridge = bridge;
+        snap.bridge_error = bridge_error;
+        snap.status = status;
+        snap.updated = now();
+        // A wallet switched while this ran keeps its fresh state.
+        if self.active_id() == active {
+            *self.snapshot.lock().unwrap() = snap;
+        }
+    }
+
+    /// Checks each withdrawal of wallet `id` not yet confirmed on Bitcoin.
+    fn follow_withdrawals(&self, api: &Bridge, id: &str) {
+        let open: Vec<String> = self
+            .record(id)
+            .map(|r| r.withdrawals)
+            .unwrap_or_default()
+            .into_iter()
             .filter(|w| w.status != "paid" || w.payment_confirmations.unwrap_or(0) == 0)
-            .map(|w| w.txid.clone())
+            .map(|w| w.txid)
             .collect();
         for txid in open {
             let Ok(s) = api.peg_out(&txid) else { continue };
-            let mut settings = self.settings.lock().unwrap();
-            if let Some(w) = settings.withdrawals.iter_mut().find(|w| w.txid == txid) {
-                w.status = if s.status == "unknown" && w.status == "sending" {
-                    "sending".into()
-                } else {
-                    s.status
-                };
-                w.pays = s.pays;
-                w.payment_txid = s.payment_txid;
-                w.payment_confirmations = s.payment_confirmations;
-            }
-            let copy = settings.clone();
-            drop(settings);
-            self.save(&copy);
+            self.update_record(id, |r| {
+                if let Some(w) = r.withdrawals.iter_mut().find(|w| w.txid == txid) {
+                    w.status = if s.status == "unknown" && w.status == "sending" {
+                        "sending".into()
+                    } else {
+                        s.status
+                    };
+                    w.pays = s.pays;
+                    w.payment_txid = s.payment_txid;
+                    w.payment_confirmations = s.payment_confirmations;
+                }
+            });
         }
     }
 
     /// Forgets payments the chain shows confirmed, or hasn't shown after an
     /// hour (dropped by the network).
-    fn settle(&self, chain: Chain, view: Option<&AddressView>) {
+    fn settle(&self, id: &str, chain: Chain, view: Option<&AddressView>) {
         let Some(view) = view else { return };
         let seen: HashMap<&str, i64> = view
             .history
             .iter()
             .map(|h| (h.txid.as_str(), h.confirmations))
             .collect();
-        let mut settings = self.settings.lock().unwrap();
-        let before = settings.outgoing.len();
         let name = chain_name(chain);
         let time = now();
-        settings.outgoing.retain(|o| {
+        let keep = |o: &Outgoing| {
             if o.chain != name {
                 return true;
             }
@@ -560,11 +770,12 @@ impl Wallet {
                 Some(&confirmations) => confirmations <= 0,
                 None => time.saturating_sub(o.time) < 3600,
             }
-        });
-        if settings.outgoing.len() != before {
-            let copy = settings.clone();
-            drop(settings);
-            self.save(&copy);
+        };
+        let changed = self
+            .record(id)
+            .is_some_and(|r| r.outgoing.iter().any(|o| !keep(o)));
+        if changed {
+            self.update_record(id, |r| r.outgoing.retain(|o| keep(o)));
         }
     }
 
@@ -574,133 +785,280 @@ impl Wallet {
             let snap = self.snapshot.lock().unwrap();
             self.bridge_view(&snap).signer_change?
         };
-        let mut settings = self.settings.lock().unwrap();
-        if settings.notified_signer_change.as_deref() == Some(change.reported_peg.as_str()) {
+        let already = self.settings.lock().unwrap().notified_signer_change.clone();
+        if already.as_deref() == Some(change.reported_peg.as_str()) {
             return None;
         }
-        settings.notified_signer_change = Some(change.reported_peg.clone());
-        let copy = settings.clone();
-        drop(settings);
-        self.save(&copy);
+        self.update(|s| s.notified_signer_change = Some(change.reported_peg.clone()));
         Some(change)
     }
 
-    // --- the key -----------------------------------------------------------
+    // --- wallets -------------------------------------------------------------
+
+    /// Adds a wallet holding `key` and makes it the active one.
+    fn adopt(&self, key: &Key, name: &str, made_here: bool) -> Outcome<String> {
+        let name = wallet_name(name)?;
+        let address = key.destination().address(&MAINNET);
+        let ids: Vec<WalletRecord> = self.settings.lock().unwrap().wallets.clone();
+        if let Some(w) = ids
+            .iter()
+            .find(|w| self.address_of(&w.id).as_deref() == Some(&address))
+        {
+            return fail(format!(
+                "that key is already in this app, as wallet \"{}\"",
+                self.display_name(w)
+            ));
+        }
+        let id = if ids.is_empty() && !self.vault(FIRST).has_key() {
+            FIRST.to_string()
+        } else {
+            let mut raw = [0u8; 6];
+            rand_id(&mut raw);
+            hex::encode(raw)
+        };
+        self.vault(&id).store(key)?;
+        self.update(|s| {
+            s.wallets.push(WalletRecord {
+                id: id.clone(),
+                name,
+                created: now(),
+                backup_confirmed: !made_here,
+                backup_required: made_here,
+                outgoing: Vec::new(),
+                withdrawals: Vec::new(),
+            });
+            s.active = Some(id.clone());
+        });
+        self.forget_views();
+        Ok(id)
+    }
 
     /// Makes a new wallet. `show_backup` shows the key outside the web view
     /// and says whether the user saved it; until they do, nothing can be
     /// received, as this PC holds the only copy.
-    pub fn create(&self, show_backup: impl Fn(&str) -> bool) -> Outcome<View> {
-        if self.vault.has_key() {
-            return fail("this PC already has a wallet; remove it first");
-        }
+    pub fn create(&self, name: &str, show_backup: impl Fn(&str) -> bool) -> Outcome<View> {
         let key = Key::generate();
-        self.vault.store(&key)?;
-        {
-            let mut settings = self.settings.lock().unwrap();
-            settings.backup_required = true;
-            settings.backup_confirmed = false;
-            settings.outgoing.clear();
-            settings.withdrawals.clear();
-            let copy = settings.clone();
-            drop(settings);
-            self.save(&copy);
-        }
+        let id = self.adopt(&key, name, true)?;
         let saved = show_backup(&key.wif(&MAINNET));
         drop(key);
         if saved {
-            self.mark_backed_up();
+            self.mark_backed_up(&id);
         }
         self.refresh();
         Ok(self.view())
     }
 
-    /// Adopts a key the user already has (their backup), from the clipboard.
-    pub fn import(&self, text: Zeroizing<String>) -> Outcome<View> {
-        if self.vault.has_key() {
-            return fail("this PC already has a wallet; remove it first");
-        }
+    /// Adds a wallet from a key the user already has (their backup), from
+    /// the clipboard.
+    pub fn import(&self, name: &str, text: Zeroizing<String>) -> Outcome<View> {
         let key = Key::parse(&text)?;
         drop(text);
-        self.vault.store(&key)?;
-        {
-            let mut settings = self.settings.lock().unwrap();
-            settings.outgoing.clear();
-            settings.withdrawals.clear();
-            let copy = settings.clone();
-            drop(settings);
-            self.save(&copy);
-        }
-        // The user brought the key, so they have it.
-        self.mark_backed_up();
+        self.adopt(&key, name, false)?;
         self.refresh();
         Ok(self.view())
     }
 
-    /// Shows the key for backup, after Windows Hello.
+    pub fn select(&self, id: &str) -> Outcome<View> {
+        if self.record(id).is_none() {
+            return fail("there is no such wallet");
+        }
+        self.update(|s| s.active = Some(id.to_string()));
+        self.forget_views();
+        self.refresh();
+        Ok(self.view())
+    }
+
+    pub fn rename(&self, id: &str, name: &str) -> Outcome<View> {
+        let name = wallet_name(name)?;
+        if self.record(id).is_none() {
+            return fail("there is no such wallet");
+        }
+        self.update_record(id, |r| r.name = name);
+        Ok(self.view())
+    }
+
+    /// Shows the active wallet's key for backup, after Windows Hello.
     pub fn backup(&self, show_backup: impl Fn(&str) -> bool) -> Outcome<View> {
-        let key = self.vault.unlock()?;
+        let id = self
+            .active_id()
+            .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
+        let key = self.vault(&id).unlock()?;
         if show_backup(&key.wif(&MAINNET)) {
-            self.mark_backed_up();
+            self.mark_backed_up(&id);
         }
         Ok(self.view())
     }
 
-    /// Puts the wallet back from its backup when the vault can't be opened:
-    /// the key must be this wallet's.
+    /// Puts the active wallet back from its backup when its vault can't be
+    /// opened: the key must be this wallet's.
     pub fn restore(&self, text: Zeroizing<String>) -> Outcome<View> {
+        let id = self
+            .active_id()
+            .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
         let key = Key::parse(&text)?;
         drop(text);
-        self.vault.restore(&key)?;
-        self.mark_backed_up();
+        self.vault(&id).restore(&key)?;
+        self.mark_backed_up(&id);
         self.refresh();
         Ok(self.view())
     }
 
-    /// Removes the wallet from this PC after Windows Hello. `confirm` asks
-    /// the user, outside the web view.
+    /// Removes the active wallet from this PC after Windows Hello. `confirm`
+    /// asks the user, outside the web view.
     pub fn remove(&self, confirm: impl Fn() -> bool) -> Outcome<View> {
+        let id = self
+            .active_id()
+            .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
         if !confirm() {
             return Ok(self.view());
         }
-        match self.vault.remove() {
+        let vault = self.vault(&id);
+        match vault.remove() {
             Ok(()) => {}
             // A vault that can't be opened is set aside instead: the key may
             // still be recoverable from it some other way.
             Err(e) if e.needs_restore() => {
-                self.vault.set_aside()?;
+                if vault.has_key() {
+                    vault.set_aside()?;
+                }
             }
             Err(e) => return Err(e.into()),
         }
-        {
-            let mut settings = self.settings.lock().unwrap();
-            let server = settings.server.clone();
-            let language = settings.language.clone();
-            *settings = Settings {
-                server,
-                language,
-                ..Settings::default()
-            };
-            let copy = settings.clone();
-            drop(settings);
-            self.save(&copy);
+        self.update(|s| {
+            s.wallets.retain(|w| w.id != id);
+            s.active = s.wallets.first().map(|w| w.id.clone());
+        });
+        if id != FIRST {
+            // Its folder goes too, when nothing was set aside in it.
+            let _ = std::fs::remove_dir(store::vault_dir(&self.dir, &id));
         }
-        *self.pending.lock().unwrap() = None;
-        let mut snap = self.snapshot.lock().unwrap();
-        snap.btcvm = None;
-        snap.bitcoin = None;
-        snap.deposits.clear();
-        drop(snap);
+        self.forget_views();
+        self.refresh();
         Ok(self.view())
     }
 
-    fn mark_backed_up(&self) {
-        let mut settings = self.settings.lock().unwrap();
-        settings.backup_confirmed = true;
-        settings.backup_required = false;
-        let copy = settings.clone();
-        drop(settings);
-        self.save(&copy);
+    fn mark_backed_up(&self, id: &str) {
+        self.update_record(id, |r| {
+            r.backup_confirmed = true;
+            r.backup_required = false;
+        });
+    }
+
+    /// Drops what was shown for the previous wallet and any payment waiting.
+    fn forget_views(&self) {
+        *self.pending.lock().unwrap() = None;
+        let mut snap = self.snapshot.lock().unwrap();
+        snap.wallet = None;
+        snap.btcvm = None;
+        snap.bitcoin = None;
+        snap.bitcoin_note = None;
+        snap.deposits.clear();
+    }
+
+    // --- the address book --------------------------------------------------------
+
+    pub fn add_contact(&self, name: &str, address: &str, chain: &str) -> Outcome<View> {
+        let chain = parse_chain(chain)?;
+        let canonical = book::canonical(address, &MAINNET)?;
+        let dest = decode_address(&canonical, &MAINNET)?;
+        if self
+            .snapshot
+            .lock()
+            .unwrap()
+            .bridge
+            .as_ref()
+            .is_some_and(|b| b.is_peg(&dest))
+        {
+            return fail("that is the bridge's own address; it can't be paid directly");
+        }
+        let current = self.settings.lock().unwrap().address_book.clone();
+        let next = book::add(&current, name, &canonical, chain, &MAINNET)?;
+        self.update(|s| s.address_book = next);
+        Ok(self.view())
+    }
+
+    pub fn rename_contact(&self, address: &str, chain: &str, name: &str) -> Outcome<View> {
+        let chain = parse_chain(chain)?;
+        let current = self.settings.lock().unwrap().address_book.clone();
+        let next = book::rename(&current, address, chain, name)?;
+        self.update(|s| s.address_book = next);
+        Ok(self.view())
+    }
+
+    pub fn remove_contact(&self, address: &str, chain: &str) -> Outcome<View> {
+        let chain = parse_chain(chain)?;
+        self.update(|s| s.address_book = book::remove(&s.address_book, address, chain));
+        Ok(self.view())
+    }
+
+    /// What the wallet knows of `address` paid on `chain`: one of its own
+    /// wallets, a contact (saved for this chain or the other), or nothing;
+    /// and whether it looks like one of those without being it.
+    fn recognize(
+        &self,
+        address: &str,
+        chain: Chain,
+    ) -> (&'static str, Option<String>, Option<String>) {
+        let settings = self.settings.lock().unwrap().clone();
+        let own: Vec<(String, String)> = settings
+            .wallets
+            .iter()
+            .filter_map(|w| self.address_of(&w.id).map(|a| (a, self.display_name(w))))
+            .collect();
+        let lookalike = own
+            .iter()
+            .map(|(a, n)| (a.as_str(), n.clone()))
+            .chain(
+                settings
+                    .address_book
+                    .iter()
+                    .map(|c| (c.address.as_str(), c.name.clone())),
+            )
+            .find(|(a, _)| book::lookalike(address, a))
+            .map(|(_, n)| n);
+        if let Some((_, name)) = own.iter().find(|(a, _)| a == address) {
+            return ("own", Some(name.clone()), lookalike);
+        }
+        match book::find(&settings.address_book, address, chain) {
+            Some(c) if c.chain == chain => ("book", Some(c.name.clone()), lookalike),
+            Some(c) => ("bookOtherChain", Some(c.name.clone()), lookalike),
+            None => ("new", None, lookalike),
+        }
+    }
+
+    // --- fees -------------------------------------------------------------------
+
+    /// The Bitcoin fee rates to offer. mempool.space's are kept only within
+    /// the wallet's bounds.
+    pub fn fee_options(&self) -> FeeOptions {
+        let bridge = self
+            .snapshot
+            .lock()
+            .unwrap()
+            .bridge
+            .as_ref()
+            .map(|b| b.btc_fee_rate);
+        let fees: Option<FeeEstimates> = self.bridge().recommended_fees().ok();
+        let rate = |f: Option<f64>| {
+            f.filter(|r| r.is_finite())
+                .map(|r| r.ceil() as u64)
+                .filter(|r| (1..=MAX_FEE_RATE).contains(r))
+        };
+        FeeOptions {
+            bridge,
+            fastest: rate(fees.map(|f| f.fastest_fee)),
+            half_hour: rate(fees.map(|f| f.half_hour_fee)),
+            hour: rate(fees.map(|f| f.hour_fee)),
+            economy: rate(fees.map(|f| f.economy_fee)),
+            minimum: rate(fees.map(|f| f.minimum_fee)),
+            max: MAX_FEE_RATE,
+        }
+    }
+
+    /// The fee rate for a Bitcoin payment: the user's, or the bridge's
+    /// estimate. The core refuses one outside its bounds.
+    fn fee_rate(bridge: &VerifiedBridge, chosen: Option<u64>) -> u64 {
+        chosen.unwrap_or(bridge.btc_fee_rate)
     }
 
     // --- payments: review, then sign exactly what was reviewed ---------------
@@ -715,21 +1073,29 @@ impl Wallet {
             .map_or_else(|| fail("the bridge isn't connected yet"), Ok)
     }
 
-    fn own(&self) -> Outcome<Destination> {
-        let address = self
-            .address()
+    fn own(&self) -> Outcome<(String, Destination)> {
+        let id = self
+            .active_id()
             .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
-        Ok(decode_address(&address, &MAINNET)?)
+        let address = self
+            .address_of(&id)
+            .map_or_else(|| fail("this wallet's vault can't be read"), Ok)?;
+        Ok((id, decode_address(&address, &MAINNET)?))
     }
 
-    /// The coins on `chain` this wallet can spend: confirmed, not spent by a
-    /// payment still in flight, with the transactions that made them.
+    /// The active wallet's coins on `chain` it can spend: confirmed, not
+    /// spent by a payment still in flight, with the transactions that made
+    /// them.
     fn coins(
         &self,
+        id: &str,
         chain: Chain,
     ) -> Outcome<(Vec<btcvm_wallet_core::Utxo>, HashMap<String, String>)> {
         let utxos = {
             let snap = self.snapshot.lock().unwrap();
+            if snap.wallet.as_deref() != Some(id) {
+                return fail("this wallet's balance hasn't loaded yet");
+            }
             let view = match chain {
                 Chain::Bitcoin => &snap.bitcoin,
                 Chain::Btcvm => &snap.btcvm,
@@ -740,10 +1106,9 @@ impl Wallet {
             view.utxos.clone()
         };
         let in_use: HashSet<String> = self
-            .settings
-            .lock()
-            .unwrap()
-            .outgoing
+            .record(id)
+            .map(|r| r.outgoing)
+            .unwrap_or_default()
             .iter()
             .filter(|o| o.chain == chain_name(chain))
             .flat_map(|o| o.spent.clone())
@@ -761,76 +1126,142 @@ impl Wallet {
         Ok((utxos, raw))
     }
 
-    fn keep(&self, kind: Kind, plan: Plan, to: String, amount: u64) -> u64 {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        *self.pending.lock().unwrap() = Some(Pending {
-            id,
-            kind,
-            plan,
-            to,
-            amount,
-        });
-        id
-    }
-
-    pub fn prepare_send(&self, chain: &str, to: &str, amount: &str) -> Outcome<Review> {
+    pub fn prepare_send(
+        &self,
+        chain: &str,
+        to: &str,
+        amount: &str,
+        fee_rate: Option<u64>,
+    ) -> Outcome<Review> {
         let chain = parse_chain(chain)?;
         let bridge = self.verified()?;
         let amount = parse_btc(amount)?;
-        let from = self.own()?;
-        let (utxos, raw) = self.coins(chain)?;
+        let (id, from) = self.own()?;
+        let (utxos, raw) = self.coins(&id, chain)?;
         let coins = Coins {
             utxos: &utxos,
             raw_txs: &raw,
         };
-        let to = to.trim().to_string();
-        let plan = plan_send(&bridge, chain, &from, coins, &to, amount)?;
-        Ok(self.review(Kind::Send, plan, to, amount, &bridge))
+        let to = book::canonical(to.trim(), &MAINNET)?;
+        let mut bridge_for_fee = bridge.clone();
+        bridge_for_fee.btc_fee_rate = Self::fee_rate(&bridge, fee_rate);
+        let plan = plan_send(&bridge_for_fee, chain, &from, coins, &to, amount)?;
+        let rate = Self::fee_rate(&bridge, fee_rate);
+        Ok(self.review(Kind::Send, id, plan, to, amount, &bridge, Some(rate)))
     }
 
-    pub fn prepare_deposit(&self, amount: &str) -> Outcome<Review> {
+    pub fn prepare_deposit(&self, amount: &str, fee_rate: Option<u64>) -> Outcome<Review> {
         let bridge = self.verified()?;
         if bridge.signer_change.is_some() {
-            return Err(btcvm_wallet_core::Error::Untrusted(
-                btcvm_wallet_core::wallet::PAUSED_BY_SIGNER_CHANGE.into(),
-            )
-            .into());
+            return Err(paused());
         }
         let amount = parse_btc(amount)?;
-        let from = self.own()?;
-        let address = from.address(&MAINNET);
+        let (id, from) = self.own()?;
         // Registers the address with the bridge; the core checks the answer.
-        let told = self.bridge().deposit_address(&address)?;
-        let (utxos, raw) = self.coins(Chain::Bitcoin)?;
+        let told = self.bridge().deposit_address(&from.address(&MAINNET))?;
+        let (utxos, raw) = self.coins(&id, Chain::Bitcoin)?;
         let coins = Coins {
             utxos: &utxos,
             raw_txs: &raw,
         };
-        let plan = plan_deposit(&bridge, &from, coins, amount, &told)?;
-        Ok(self.review(Kind::Deposit, plan, told, amount, &bridge))
+        let mut bridge_for_fee = bridge.clone();
+        bridge_for_fee.btc_fee_rate = Self::fee_rate(&bridge, fee_rate);
+        let plan = plan_deposit(&bridge_for_fee, &from, coins, amount, &told)?;
+        let rate = Self::fee_rate(&bridge, fee_rate);
+        Ok(self.review(Kind::Deposit, id, plan, told, amount, &bridge, Some(rate)))
     }
 
     pub fn prepare_withdrawal(&self, to: &str, amount: &str) -> Outcome<Review> {
         let bridge = self.verified()?;
         let amount = parse_btc(amount)?;
-        let from = self.own()?;
-        let (utxos, raw) = self.coins(Chain::Btcvm)?;
+        let (id, from) = self.own()?;
+        let (utxos, raw) = self.coins(&id, Chain::Btcvm)?;
         let coins = Coins {
             utxos: &utxos,
             raw_txs: &raw,
         };
-        let to = to.trim().to_string();
+        let to = book::canonical(to.trim(), &MAINNET)?;
         let plan = plan_withdrawal(&bridge, &from, coins, amount, &to)?;
-        Ok(self.review(Kind::Withdraw, plan, to, amount, &bridge))
+        Ok(self.review(Kind::Withdraw, id, plan, to, amount, &bridge, None))
     }
 
+    /// The most an action can move now, as BTC for the amount field: all the
+    /// confirmed coins on its chain less the fee, and for a deposit no more
+    /// than the bridge accepts. An address not typed yet is sized as the
+    /// largest standard output, so the amount fits whatever it turns out to be.
+    pub fn max_amount(
+        &self,
+        action: &str,
+        chain: &str,
+        to: &str,
+        fee_rate: Option<u64>,
+    ) -> Outcome<String> {
+        let bridge = self.verified()?;
+        let (id, from) = self.own()?;
+        let largest = |kind| Destination::new(kind, &[0u8; 32]).expect("a 32-byte program");
+        let typed = |kind| decode_address(to.trim(), &bridge.net).unwrap_or_else(|_| largest(kind));
+        let (chain, dest, data, floor, cap) = match action {
+            "send" => (parse_chain(chain)?, typed(AddressKind::P2wsh), None, 0, 0),
+            "deposit" => {
+                if bridge.signer_change.is_some() {
+                    return Err(paused());
+                }
+                (
+                    Chain::Bitcoin,
+                    bridge.signers.deposit_destination(&from)?,
+                    None,
+                    bridge.min_deposit,
+                    bridge.max_deposit,
+                )
+            }
+            "withdraw" => {
+                if bridge.signer_change.is_some() {
+                    return Err(paused());
+                }
+                let tag = peg_out_data(&typed(AddressKind::P2tr));
+                (
+                    Chain::Btcvm,
+                    bridge.peg.clone(),
+                    Some(tag),
+                    bridge.min_peg_out,
+                    0,
+                )
+            }
+            _ => return fail("unknown action"),
+        };
+        let (utxos, raw) = self.coins(&id, chain)?;
+        let max = max_payment(
+            &from,
+            &utxos,
+            &raw,
+            &Request {
+                chain,
+                to: dest,
+                amount: 0,
+                data,
+                fee_rate: Self::fee_rate(&bridge, fee_rate),
+            },
+        )?;
+        if max < floor {
+            return fail(format!(
+                "after the fee there are {} BTC, under the minimum of {} BTC",
+                format_btc(max),
+                format_btc(floor)
+            ));
+        }
+        Ok(format_btc(if cap > 0 { max.min(cap) } else { max }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn review(
         &self,
         kind: Kind,
+        wallet: String,
         plan: Plan,
         to: String,
         amount: u64,
         bridge: &VerifiedBridge,
+        fee_rate: Option<u64>,
     ) -> Review {
         let info = self.snapshot.lock().unwrap().info.clone();
         let outputs = plan
@@ -872,13 +1303,29 @@ impl Wallet {
                 .find(|t| parse_btc(&t.up_to).is_ok_and(|up| amount <= up))
                 .map_or(i.deposit_confirmations, |t| t.confirmations)
         });
+        // What the destination is: for a withdrawal, the Bitcoin address the
+        // bridge pays; for a deposit, the deposit address checked above.
+        let (to_known, to_name, lookalike) = match kind {
+            Kind::Deposit => ("deposit", None, None),
+            Kind::Withdraw => self.recognize(&to, Chain::Bitcoin),
+            Kind::Send => self.recognize(&to, plan.chain),
+        };
+        let wallet_name = self
+            .record(&wallet)
+            .map(|r| self.display_name(&r))
+            .unwrap_or_default();
         let review = Review {
             id: 0,
             kind: kind.name(),
             chain: chain_name(plan.chain),
+            wallet_name,
             to: to.clone(),
+            to_known,
+            to_name,
+            lookalike,
             amount: format_btc(amount),
             fee: format_btc(plan.fee),
+            fee_rate: fee_rate.filter(|_| plan.chain == Chain::Bitcoin),
             total: format_btc(amount + plan.fee),
             outputs,
             credited: (kind == Kind::Deposit)
@@ -889,74 +1336,16 @@ impl Wallet {
                 .then(|| info.as_ref().and_then(|i| i.payout_fee.clone()))
                 .flatten(),
         };
-        let id = self.keep(kind, plan, to, amount);
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        *self.pending.lock().unwrap() = Some(Pending {
+            id,
+            wallet,
+            kind,
+            plan,
+            to,
+            amount,
+        });
         Review { id, ..review }
-    }
-
-    /// The most an action can move now, as BTC for the amount field: all the
-    /// confirmed coins on its chain less the fee, and for a deposit no more
-    /// than the bridge accepts. An address not typed yet is sized as the
-    /// largest standard output, so the amount fits whatever it turns out to be.
-    pub fn max_amount(&self, action: &str, chain: &str, to: &str) -> Outcome<String> {
-        let bridge = self.verified()?;
-        let from = self.own()?;
-        let largest = |kind| Destination::new(kind, &[0u8; 32]).expect("a 32-byte program");
-        let typed = |kind| decode_address(to.trim(), &bridge.net).unwrap_or_else(|_| largest(kind));
-        let paused = || -> Outcome<()> {
-            if bridge.signer_change.is_some() {
-                return Err(btcvm_wallet_core::Error::Untrusted(
-                    btcvm_wallet_core::wallet::PAUSED_BY_SIGNER_CHANGE.into(),
-                )
-                .into());
-            }
-            Ok(())
-        };
-        let (chain, dest, data, floor, cap) = match action {
-            "send" => (parse_chain(chain)?, typed(AddressKind::P2wsh), None, 0, 0),
-            "deposit" => {
-                paused()?;
-                (
-                    Chain::Bitcoin,
-                    bridge.signers.deposit_destination(&from)?,
-                    None,
-                    bridge.min_deposit,
-                    bridge.max_deposit,
-                )
-            }
-            "withdraw" => {
-                paused()?;
-                let tag = peg_out_data(&typed(AddressKind::P2tr));
-                (
-                    Chain::Btcvm,
-                    bridge.peg.clone(),
-                    Some(tag),
-                    bridge.min_peg_out,
-                    0,
-                )
-            }
-            _ => return fail("unknown action"),
-        };
-        let (utxos, raw) = self.coins(chain)?;
-        let max = max_payment(
-            &from,
-            &utxos,
-            &raw,
-            &Request {
-                chain,
-                to: dest,
-                amount: 0,
-                data,
-                fee_rate: bridge.btc_fee_rate,
-            },
-        )?;
-        if max < floor {
-            return fail(format!(
-                "after the fee there are {} BTC, under the minimum of {} BTC",
-                format_btc(max),
-                format_btc(floor)
-            ));
-        }
-        Ok(format_btc(if cap > 0 { max.min(cap) } else { max }))
     }
 
     pub fn cancel(&self, id: u64) {
@@ -973,8 +1362,11 @@ impl Wallet {
             Some(p) if p.id == id => p.clone(),
             _ => return fail("that payment is no longer waiting; prepare it again"),
         };
-        let own = self.own()?;
-        let key = self.vault.unlock()?;
+        let (wallet, own) = self.own()?;
+        if wallet != pending.wallet {
+            return fail("the active wallet changed; prepare the payment again");
+        }
+        let key = self.vault(&wallet).unlock()?;
         if key.destination() != own {
             return fail("the key in the vault isn't this wallet's address; nothing was signed");
         }
@@ -1002,10 +1394,9 @@ impl Wallet {
             .sum();
         let time = now();
         // Recorded before sending, so it's tracked even if the answer is lost.
-        {
-            let mut settings = self.settings.lock().unwrap();
-            settings.outgoing.retain(|o| o.txid != signed.txid);
-            settings.outgoing.insert(
+        self.update_record(&wallet, |r| {
+            r.outgoing.retain(|o| o.txid != signed.txid);
+            r.outgoing.insert(
                 0,
                 Outgoing {
                     txid: signed.txid.clone(),
@@ -1018,9 +1409,9 @@ impl Wallet {
                     time,
                 },
             );
-            settings.outgoing.truncate(50);
+            r.outgoing.truncate(50);
             if pending.kind == Kind::Withdraw {
-                settings.withdrawals.insert(
+                r.withdrawals.insert(
                     0,
                     Withdrawal {
                         txid: signed.txid.clone(),
@@ -1033,12 +1424,9 @@ impl Wallet {
                         payment_confirmations: None,
                     },
                 );
-                settings.withdrawals.truncate(50);
+                r.withdrawals.truncate(50);
             }
-            let copy = settings.clone();
-            drop(settings);
-            self.save(&copy);
-        }
+        });
         match self.bridge().broadcast(chain, &signed.hex) {
             Ok(txid) if txid == signed.txid => Ok(Sent {
                 txid,
@@ -1054,12 +1442,10 @@ impl Wallet {
             }),
             Err(e) if e.status == 400 => {
                 // Refused, so nothing was sent: its coins are free again.
-                let mut settings = self.settings.lock().unwrap();
-                settings.outgoing.retain(|o| o.txid != signed.txid);
-                settings.withdrawals.retain(|w| w.txid != signed.txid);
-                let copy = settings.clone();
-                drop(settings);
-                self.save(&copy);
+                self.update_record(&wallet, |r| {
+                    r.outgoing.retain(|o| o.txid != signed.txid);
+                    r.withdrawals.retain(|w| w.txid != signed.txid);
+                });
                 Err(e.into())
             }
             Err(e) => fail(format!(
@@ -1087,13 +1473,7 @@ impl Wallet {
         *self.bridge.lock().unwrap() = Arc::new(Bridge::new(url));
         *self.snapshot.lock().unwrap() = Snapshot::default();
         *self.pending.lock().unwrap() = None;
-        {
-            let mut settings = self.settings.lock().unwrap();
-            settings.server = (url != DEFAULT_SERVER).then(|| url.to_string());
-            let copy = settings.clone();
-            drop(settings);
-            self.save(&copy);
-        }
+        self.update(|s| s.server = (url != DEFAULT_SERVER).then(|| url.to_string()));
         self.refresh();
         Ok(self.view())
     }
@@ -1101,11 +1481,7 @@ impl Wallet {
     pub fn set_language(&self, language: &str) -> View {
         let language = if language == "es" { "es" } else { "en" };
         *self.language.lock().unwrap() = language.into();
-        let mut settings = self.settings.lock().unwrap();
-        settings.language = Some(language.into());
-        let copy = settings.clone();
-        drop(settings);
-        self.save(&copy);
+        self.update(|s| s.language = Some(language.into()));
         self.view()
     }
 
@@ -1150,4 +1526,10 @@ impl Wallet {
             _ => return fail("no such link"),
         })
     }
+}
+
+/// Random bytes for a wallet's id, from the system's generator.
+fn rand_id(buf: &mut [u8]) {
+    use rand_core::RngCore;
+    rand_core::OsRng.fill_bytes(buf);
 }

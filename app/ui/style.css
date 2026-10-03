@@ -53,6 +53,8 @@ button, input, select { font: inherit; color: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 14px 24px;
   background: linear-gradient(120deg, var(--brand-2), var(--brand) 55%, #4c1d95);
   color: #fff;
@@ -77,8 +79,8 @@ button, input, select { font: inherit; color: inherit; }
 .coin { width: 22px; height: 22px; vertical-align: -5px; margin-right: 8px; }
 .product { font-weight: 650; font-size: 16px; }
 .byline { font-size: 12px; opacity: .85; }
-.tools { display: flex; gap: 8px; align-items: center; }
-.tools .ghost { color: #fff; border-color: rgba(255,255,255,.4); }
+.tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; }
+.tools .ghost { color: #fff; border-color: rgba(255,255,255,.4); padding: 6px 11px; }
 .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.18); }
 .pill.off { background: rgba(0,0,0,.25); }
 
@@ -180,6 +182,9 @@ td.num { text-align: right; white-space: nowrap; }
 
 #toast {
   position: fixed;
+  inset: auto;
+  margin: 0;
+  border: 0;
   left: 50%;
   bottom: 24px;
   transform: translateX(-50%);
@@ -190,7 +195,8 @@ td.num { text-align: right; white-space: nowrap; }
   color: var(--bg);
   box-shadow: 0 6px 24px rgba(0,0,0,.25);
 }
-#toast.bad { background: var(--bad-ink); color: #fff; }
+/* A dark red in both themes: --bad-ink is pale in the dark one. */
+#toast.bad { background: #9f1d1d; color: #fff; }
 
 .about-links { display: grid; gap: 8px; margin-top: 12px; }
 .about-links button { text-align: left; }
@@ -199,3 +205,25 @@ td.num { text-align: right; white-space: nowrap; }
 body.busy { cursor: progress; }
 .amount-row { display: flex; gap: 8px; }
 .amount-row input { flex: 1; }
+
+/* The wallet in use, in the header. */
+.wallet-select {
+  width: auto;
+  max-width: 160px;
+  padding: 6px 8px;
+  border-color: rgba(255,255,255,.4);
+  background: rgba(255,255,255,.12);
+  color: #fff;
+}
+.wallet-select:focus { outline-color: #fff; }
+.wallet-select option { color: var(--ink); background: var(--panel); }
+
+.tools { margin-left: auto; }
+.picker { margin-bottom: 6px; }
+.grow { flex: 1; min-width: 0; }
+.list strong + .tag { margin-left: 8px; }
+.list li > .row { flex: none; justify-content: flex-end; }
+.list li > .row button { padding: 5px 10px; font-size: 13px; }
+#modal-body h3 { margin: 18px 0 4px; font-size: 14px; }
+.bad-text { color: var(--bad-ink); }
+.warn-text { color: var(--warn-ink); }

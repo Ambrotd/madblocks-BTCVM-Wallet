@@ -2352,6 +2352,7 @@ dependencies = [
  "btcvm-wallet-core",
  "btcvm-wallet-vault",
  "hex",
+ "rand_core",
  "serde",
  "serde_json",
  "tauri",

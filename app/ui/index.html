@@ -21,6 +21,9 @@
     </div>
     <nav class="tools">
       <span id="net" class="pill"></span>
+      <select id="wallet-select" class="wallet-select" hidden></select>
+      <button id="open-wallets" class="ghost" type="button" data-t="wallets" hidden></button>
+      <button id="open-book" class="ghost" type="button" data-t="book" hidden></button>
       <button id="lang" class="ghost" type="button"></button>
       <button id="open-about" class="ghost" type="button" data-t="about"></button>
       <button id="open-settings" class="ghost" type="button" data-t="settings"></button>
@@ -31,6 +34,6 @@
   <main id="main"></main>
 
   <dialog id="modal"><div id="modal-body"></div></dialog>
-  <div id="toast" hidden></div>
+  <div id="toast" popover="manual"></div>
 </body>
 </html>

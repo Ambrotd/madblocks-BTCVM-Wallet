@@ -57,7 +57,7 @@ const STRINGS = {
     checkIt: 'Dónde comprobarlo',
     sources: { oldPegOnBitcoin: 'El peg antiguo en un explorador de Bitcoin: tras una rotación real, sus BTC se han movido al nuevo (solo los firmantes antiguos podían hacerlo)', newPegOnBitcoin: 'El peg nuevo en un explorador de Bitcoin', rotationProcedure: 'Cómo rotan los firmantes los operadores de BTCVM', btcvmDocs: 'Documentación de BTCVM (metalbtc.com)', btcvmExplorer: 'Explorador de BTCVM (metalbtc.com)', walletMaker: 'madblocks publica cada conjunto de firmantes verificado con las actualizaciones' },
     server: 'Servidor del puente', save: 'Guardar', reset: 'Por defecto', language: 'Idioma',
-    backupKey: 'Ver mi clave para la copia (Windows Hello)', removeWallet: 'Quitar la wallet de este PC',
+    backupKey: 'Ver la clave de la cartera en uso (Windows Hello)', removeWallet: 'Quitar la cartera en uso de este PC',
     security: 'Seguridad',
     securityText: 'La clave se descifra solo para firmar, tras Windows Hello, y nunca llega a esta ventana. Las direcciones de depósito y la reserva del puente se calculan aquí a partir de los firmantes fijados en la wallet; el servidor no puede redirigir un pago. Cada moneda se comprueba contra la transacción que la creó y las comisiones tienen tope.',
     aboutTitle: 'Acerca de',
@@ -65,6 +65,27 @@ const STRINGS = {
     vote: 'Votar a madblocks en XPR Network', delegate: 'Delegar en el validador de Metal ({node})', website: 'madblocks.tech', xLink: 'Seguir a @madblocksbp en X',
     disclaimer: 'Wallet independiente: no la ha hecho ni la avala Metallicus. Usa la API pública del puente de BTCVM. Software sin auditar y BTCVM está en alfa: usa cantidades pequeñas.',
     license: 'Licencia MIT. Versión {v}.', close: 'Cerrar',
+    wallets: 'Carteras', book: 'Libreta', mainWallet: 'Principal', walletN: 'Cartera {id}',
+    manageWallets: 'Tus carteras',
+    walletsText: 'Cada cartera es una clave distinta, con su propia dirección (la misma en Bitcoin y en BTCVM), su copia de seguridad y su clave de Windows Hello. Para mover fondos entre ellas, envía a la dirección de la otra: aparecen en «Elegir de la libreta…».',
+    active: 'en uso', use: 'Usar', rename: 'Renombrar', newWalletName: 'Nombre de la nueva cartera (opcional)', namePlaceholder: 'Ej.: Ahorro',
+    newWallet: 'Crear cartera nueva', importWallet: 'Importar clave del portapapeles', needsBackup: 'sin copia de seguridad',
+    bookTitle: 'Libreta de direcciones',
+    bookText: 'Nombres para las direcciones a las que pagas. Guarda cada una para la red en la que la usas: la misma dirección existe en Bitcoin y en BTCVM, pero un exchange que solo vigila Bitcoin no verá lo que le envíes en BTCVM.',
+    noContacts: 'Todavía no hay direcciones guardadas.', contactName: 'Nombre', contactAddress: 'Dirección', addContact: 'Guardar en la libreta', delete: 'Borrar', newName: 'Nuevo nombre',
+    pick: 'Elegir de la libreta…', myWallets: 'Mis carteras', contactsFor: 'Libreta ({chain})', otherNetwork: 'guardadas para la otra red',
+    feeLabel: 'Comisión de Bitcoin', feeFast: 'Rápida (~10 min)', feeHalfHour: 'Normal (~30 min)', feeHour: 'Lenta (~1 h)', feeEconomy: 'Económica (horas)', feeBridge: 'Recomendada (la del puente)', feeCustom: 'Personalizada (sat/vB)',
+    feeSlow: 'Con esta comisión puede tardar horas o días en confirmarse. Tus fondos no se pierden mientras tanto.',
+    feeBelowMin: 'Está por debajo del mínimo que aceptan hoy los nodos: probablemente la red la rechace y no se envíe.',
+    from: 'Desde', feeRateUsed: '{rate} sat/vB',
+    toOwn: 'Destino: tu cartera «{name}».', toBook: 'Destino: «{name}», de tu libreta.',
+    toBookOther: '«{name}» está guardado en tu libreta para la otra red. Si es de un exchange que solo vigila esa red, no verá este pago.',
+    toNew: 'Dirección nueva: no está en tu libreta. Compruébala carácter a carácter con la que te dieron.',
+    lookalike: '¡Atención! Esta dirección se parece a «{name}» (de tu libreta o tus carteras) pero NO es la misma. Puede ser un intento de suplantación (address poisoning): no copies direcciones del historial.',
+    feeInvalid: 'Escribe la comisión en sat/vB: un número entero del 1 al {max}.',
+    feeVmFixed: 'En BTCVM la comisión es fija y mínima: 1 sat por cada 1000 vB (como poco, 1 sat). Solo se elige en Bitcoin.',
+    feeHelp: 'Se paga por tamaño (sat por vbyte), no por cantidad. Una comisión baja no pone en riesgo tus fondos: solo tarda más en confirmarse. Si queda por debajo del mínimo de la red, se rechaza y no sale nada.',
+    backupShort: 'Copia de seguridad', removeShort: 'Quitar', sure: '¿Seguro? Pulsa otra vez',
   },
   en: {
     byline: 'by madblocks · XPR Network BP and Metal validator',
@@ -117,7 +138,7 @@ const STRINGS = {
     checkIt: 'Where to check it',
     sources: { oldPegOnBitcoin: 'The old peg on a Bitcoin explorer: after a real rotation its BTC have moved to the new one (only the old signers could do that)', newPegOnBitcoin: 'The new peg on a Bitcoin explorer', rotationProcedure: 'How BTCVM\'s operators rotate the signers', btcvmDocs: 'BTCVM\'s documentation (metalbtc.com)', btcvmExplorer: 'BTCVM\'s explorer (metalbtc.com)', walletMaker: 'madblocks publish each verified signer set with the wallet\'s updates' },
     server: 'Bridge server', save: 'Save', reset: 'Default', language: 'Language',
-    backupKey: 'Show my key for backup (Windows Hello)', removeWallet: 'Remove the wallet from this PC',
+    backupKey: 'Show the key of the wallet in use (Windows Hello)', removeWallet: 'Remove the wallet in use from this PC',
     security: 'Security',
     securityText: 'The key is decrypted only to sign, after Windows Hello, and never reaches this window. Deposit addresses and the bridge\'s reserve are computed here from the signers pinned in the wallet; the server can\'t redirect a payment. Every coin is checked against the transaction that created it, and fees are capped.',
     aboutTitle: 'About',
@@ -125,6 +146,27 @@ const STRINGS = {
     vote: 'Vote for madblocks on XPR Network', delegate: 'Delegate to the Metal validator ({node})', website: 'madblocks.tech', xLink: 'Follow @madblocksbp on X',
     disclaimer: 'An independent wallet: not made or endorsed by Metallicus. It uses BTCVM\'s public bridge API. Unaudited software, and BTCVM is in alpha: keep amounts small.',
     license: 'MIT license. Version {v}.', close: 'Close',
+    wallets: 'Wallets', book: 'Address book', mainWallet: 'Main', walletN: 'Wallet {id}',
+    manageWallets: 'Your wallets',
+    walletsText: 'Each wallet is a different key, with its own address (the same on Bitcoin and BTCVM), its own backup and its own Windows Hello key. To move funds between them, send to the other\'s address: they appear under "Pick from the address book…".',
+    active: 'in use', use: 'Use', rename: 'Rename', newWalletName: 'Name of the new wallet (optional)', namePlaceholder: 'e.g. Savings',
+    newWallet: 'Create a new wallet', importWallet: 'Import a key from the clipboard', needsBackup: 'not backed up',
+    bookTitle: 'Address book',
+    bookText: 'Names for the addresses you pay. Save each for the network you use it on: the same address exists on Bitcoin and BTCVM, but an exchange that only watches Bitcoin won\'t see what you send it on BTCVM.',
+    noContacts: 'No saved addresses yet.', contactName: 'Name', contactAddress: 'Address', addContact: 'Save to the address book', delete: 'Delete', newName: 'New name',
+    pick: 'Pick from the address book…', myWallets: 'My wallets', contactsFor: 'Address book ({chain})', otherNetwork: 'saved for the other network',
+    feeLabel: 'Bitcoin fee', feeFast: 'Fast (~10 min)', feeHalfHour: 'Normal (~30 min)', feeHour: 'Slow (~1 h)', feeEconomy: 'Economy (hours)', feeBridge: 'Recommended (the bridge\'s)', feeCustom: 'Custom (sat/vB)',
+    feeSlow: 'At this fee it may take hours or days to confirm. Your funds aren\'t lost meanwhile.',
+    feeBelowMin: 'It\'s under the minimum nodes accept today: the network will probably refuse it and it won\'t be sent.',
+    from: 'From', feeRateUsed: '{rate} sat/vB',
+    toOwn: 'To your wallet "{name}".', toBook: 'To "{name}", from your address book.',
+    toBookOther: '"{name}" is saved in your address book for the other network. If it\'s an exchange that only watches that network, it won\'t see this payment.',
+    toNew: 'A new address: it isn\'t in your address book. Check it character by character against the one you were given.',
+    lookalike: 'Careful! This address looks like "{name}" (from your address book or your wallets) but is NOT the same. It may be an impersonation attempt (address poisoning): don\'t copy addresses from your history.',
+    feeInvalid: 'Enter the fee in sat/vB: a whole number from 1 to {max}.',
+    feeVmFixed: 'On BTCVM the fee is fixed and tiny: 1 sat per 1000 vB (at least 1 sat). It\'s only chosen on Bitcoin.',
+    feeHelp: 'You pay by size (sat per vbyte), not by amount. A low fee doesn\'t put your funds at risk: it only takes longer to confirm. Under the network\'s minimum, it\'s refused and nothing is sent.',
+    backupShort: 'Back up', removeShort: 'Remove', sure: 'Sure? Click again',
   },
 };
 
@@ -162,13 +204,23 @@ const $ = (id) => document.getElementById(id);
 const short = (s) => (s && s.length > 20 ? `${s.slice(0, 10)}…${s.slice(-8)}` : s);
 const when = (secs) => (secs ? new Date(secs * 1000).toLocaleString(lang) : '');
 
+// The toast is a popover, so it shows above an open dialog too.
 function toast(message, bad = false) {
   const el = $('toast');
   el.textContent = message;
   el.className = bad ? 'bad' : '';
-  el.hidden = false;
+  if (el.showPopover) {
+    if (el.matches(':popover-open')) el.hidePopover();
+    el.showPopover();
+  } else el.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { el.hidden = true; }, bad ? 9000 : 5000);
+  toast.timer = setTimeout(hideToast, bad ? 9000 : 5000);
+}
+
+function hideToast() {
+  const el = $('toast');
+  if (!el.hidePopover) el.hidden = true;
+  else if (el.matches(':popover-open')) el.hidePopover();
 }
 
 function showError(e) {
@@ -205,10 +257,26 @@ function renderChrome() {
   const online = view && view.bridge.connected && !view.connectionError;
   net.textContent = online ? t('connected') : t('offline');
   net.className = online ? 'pill' : 'pill off';
+  const has = !!(view && view.hasWallet);
+  for (const id of ['wallet-select', 'open-wallets', 'open-book']) $(id).hidden = !has;
+  if (has) {
+    const select = $('wallet-select');
+    const key = JSON.stringify([lang, view.wallets.map((w) => [w.id, w.name])]);
+    if (select.dataset.key !== key) {
+      select.dataset.key = key;
+      select.replaceChildren(...view.wallets.map((w) => h('option', { value: w.id }, walletName(w))));
+    }
+    select.value = view.walletId || '';
+  }
 }
 
 function banner(bad, title, ...body) {
   return h('div', { class: bad ? 'banner bad' : 'banner' }, h('h3', {}, title), ...body);
+}
+
+/** A warning of one paragraph, styled as a banner. */
+function notice(bad, text) {
+  return h('div', { class: bad ? 'banner bad' : 'banner' }, h('p', {}, text));
 }
 
 function renderBanners() {
@@ -251,8 +319,8 @@ function renderWelcome() {
     h('h1', {}, t('welcomeTitle')),
     h('p', { class: 'muted' }, t('welcomeText')),
     h('div', { class: 'row' },
-      h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('create_wallet')) }, t('create')),
-      h('button', { type: 'button', onclick: () => act(() => invoke('import_from_clipboard')) }, t('importClip'))),
+      h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('create_wallet', { name: '' })) }, t('create')),
+      h('button', { type: 'button', onclick: () => act(() => invoke('import_from_clipboard', { name: '' })) }, t('importClip'))),
     h('p', { class: 'small muted' }, t('helloTwice')),
     h('p', { class: 'small muted' }, t('importHint')));
 }
@@ -266,10 +334,6 @@ function renderWalletSkeleton() {
     h('section', { class: 'card', id: 'history' }),
     h('section', { class: 'card', id: 'bridge' }),
   ];
-}
-
-function field(id, labelKey, attrs = {}) {
-  return [h('label', { for: id }, t(labelKey)), h('input', { id, autocomplete: 'off', spellcheck: 'false', ...attrs })];
 }
 
 /** An amount, with a button that fills in the most the action can move. */
@@ -286,8 +350,18 @@ async function fillMax(id, action) {
   const value = (field) => ($(field) ? $(field).value : '');
   const chain = action === 'send' ? value('send-chain') : '';
   const to = action === 'send' ? value('send-to') : action === 'withdraw' ? value('withdraw-to') : '';
-  const max = await act(() => invoke('max_amount', { action, chain, to }));
-  if (max) $(id).value = max;
+  const max = await act(() => invoke('max_amount', { action, chain, to, feeRate: action === 'withdraw' ? null : chosenFee(action) }));
+  if (max) {
+    $(id).value = max;
+    // Remembered, so a change of fee or network sizes it again.
+    $(id).dataset.max = max;
+  }
+}
+
+/** Sizes again an amount Max filled in, unless it was edited since. */
+function refreshMax(action) {
+  const field = $(`${action}-amount`);
+  if (field && field.value && field.dataset.max === field.value) fillMax(field.id, action);
 }
 
 function renderActions() {
@@ -297,20 +371,28 @@ function renderActions() {
   if (tab === 'send') {
     body = h('div', {},
       h('label', { for: 'send-chain' }, t('network')),
-      h('select', { id: 'send-chain' }, h('option', { value: 'btcvm' }, 'BTCVM'), h('option', { value: 'bitcoin' }, 'Bitcoin')),
-      ...field('send-to', 'to', { placeholder: 'bc1q…' }),
+      h('select', { id: 'send-chain', onchange: () => { showSendFee(); refillPickers(); refreshMax('send'); } },
+        h('option', { value: 'btcvm' }, 'BTCVM'), h('option', { value: 'bitcoin' }, 'Bitcoin')),
+      h('label', { for: 'send-to' }, t('to')),
+      picker('send-to', () => ($('send-chain') ? $('send-chain').value : 'btcvm')),
+      h('input', { id: 'send-to', autocomplete: 'off', spellcheck: 'false', placeholder: 'bc1q…' }),
       ...amountField('send-amount', '0.0001', 'send'),
+      feeBlock('send'),
+      h('p', { class: 'small muted', id: 'send-vm-fee' }, t('feeVmFixed')),
       h('p', { class: 'small muted' }, t('sendHint')),
       h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', onclick: () => prepare('send') }, t('review'))));
   } else if (tab === 'deposit') {
     body = h('div', {},
       ...amountField('deposit-amount', '0.0005', 'deposit'),
+      feeBlock('deposit'),
       h('p', { class: 'small muted', id: 'deposit-hint' }),
       h('p', { class: 'small', id: 'deposit-paused' }),
       h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', id: 'deposit-go', onclick: () => prepare('deposit') }, t('review'))));
   } else {
     body = h('div', {},
-      ...field('withdraw-to', 'btcAddress', { placeholder: 'bc1q…' }),
+      h('label', { for: 'withdraw-to' }, t('btcAddress')),
+      picker('withdraw-to', () => 'bitcoin'),
+      h('input', { id: 'withdraw-to', autocomplete: 'off', spellcheck: 'false', placeholder: 'bc1q…' }),
       h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => { if (view.address) $('withdraw-to').value = view.address; } }, t('useMine'))),
       ...amountField('withdraw-amount', '0.0002', 'withdraw'),
       h('p', { class: 'small muted', id: 'withdraw-hint' }),
@@ -329,6 +411,8 @@ function rebuildActions() {
 }
 
 function updateActions() {
+  showSendFee();
+  for (const prefix of ['send', 'deposit']) { fillFees(prefix); updateFeeNote(prefix); }
   const b = view.bridge;
   const paused = !!b.signerChange;
   const limits = [b.minDeposit && t('limits', { min: b.minDeposit }), b.maxDeposit && t('maxCap', { max: b.maxDeposit }), b.vmFee && t('vmFeeNote', { fee: b.vmFee })].filter(Boolean).join(' · ');
@@ -355,7 +439,8 @@ function balanceCard(cls, title, bal, note) {
 
 function updateWallet() {
   const card = $('address-card');
-  card.replaceChildren(h('h2', {}, t('yourAddress')),
+  const shown = (view.wallets || []).find((w) => w.active);
+  card.replaceChildren(h('h2', {}, `${t('yourAddress')} · ${walletName(shown)}`),
     view.address
       ? h('div', {},
         h('div', { class: 'mono amount', id: 'address' }, view.address),
@@ -371,6 +456,7 @@ function updateWallet() {
     balanceCard('vm', t('btcvm'), view.btcvm, null));
 
   updateActions();
+  refillPickers();
 
   const items = [];
   for (const o of view.inFlight) {
@@ -428,15 +514,15 @@ async function prepare(kind) {
   const value = (id) => ($(id) ? $(id).value.trim() : '');
   const review = await act(() => {
     toast(t('working'));
-    if (kind === 'send') return invoke('prepare_send', { chain: value('send-chain'), to: value('send-to'), amount: value('send-amount') });
-    if (kind === 'deposit') return invoke('prepare_deposit', { amount: value('deposit-amount') });
+    if (kind === 'send') return invoke('prepare_send', { chain: value('send-chain'), to: value('send-to'), amount: value('send-amount'), feeRate: chosenFee('send') });
+    if (kind === 'deposit') return invoke('prepare_deposit', { amount: value('deposit-amount'), feeRate: chosenFee('deposit') });
     return invoke('prepare_withdrawal', { to: value('withdraw-to'), amount: value('withdraw-amount') });
   });
   if (review) showReview(review);
 }
 
 function showReview(r) {
-  $('toast').hidden = true;
+  hideToast();
   const chainName = r.chain === 'btcvm' ? 'BTCVM' : 'Bitcoin';
   const rows = r.outputs.map((o) => h('tr', {},
     h('td', {}, h('div', {}, t(`role.${o.role}`)),
@@ -463,10 +549,18 @@ function showReview(r) {
     }
   });
   cancelButton.addEventListener('click', () => { invoke('cancel', { id: r.id }); $('modal').close(); });
+  const notes = [];
+  if (r.lookalike) notes.push(notice(true, t('lookalike', { name: r.lookalike })));
+  if (r.toKnown === 'own') notes.push(h('p', { class: 'small' }, t('toOwn', { name: r.toName })));
+  else if (r.toKnown === 'book') notes.push(h('p', { class: 'small' }, t('toBook', { name: r.toName })));
+  else if (r.toKnown === 'bookOtherChain') notes.push(notice(false, t('toBookOther', { name: r.toName })));
+  else if (r.toKnown === 'new') notes.push(h('p', { class: 'small muted' }, t('toNew')));
   openModal(
     h('h2', {}, t(`reviewTitle.${r.kind}`, { chain: chainName })),
+    h('p', { class: 'small muted' }, `${t('from')}: ${r.walletName}`),
+    ...notes,
     h('table', {}, h('tbody', {}, rows,
-      h('tr', {}, h('td', {}, t('fee')), h('td', { class: 'num' }, `${r.fee} BTC`)),
+      h('tr', {}, h('td', {}, t('fee'), r.feeRate ? ` (${t('feeRateUsed', { rate: r.feeRate })})` : ''), h('td', { class: 'num' }, `${r.fee} BTC`)),
       h('tr', { class: 'total' }, h('td', {}, t('total')), h('td', { class: 'num' }, `${r.total} BTC`)),
       r.credited ? h('tr', {}, h('td', {}, t('credited'), r.confirmations ? ` (${t('afterConf', { n: r.confirmations })})` : ''), h('td', { class: 'num' }, `${r.credited} BTC`)) : null,
       r.payoutFee ? h('tr', {}, h('td', {}, t('payoutFee')), h('td', { class: 'num' }, `${r.payoutFee} BTC`)) : null)),
@@ -477,6 +571,220 @@ function showReview(r) {
 function openModal(...content) {
   $('modal-body').replaceChildren(...content);
   if (!$('modal').open) $('modal').showModal();
+}
+
+// --- wallets, the address book and fees --------------------------------------------
+
+/** A wallet's name: its own, or the default (the Rust side gives the same). */
+function walletName(w) {
+  if (!w) return '';
+  if (w.name) return w.name;
+  return w.id === 'main' ? t('mainWallet') : t('walletN', { id: (w.id || '').slice(0, 4) });
+}
+
+const chainLabel = (c) => (c === 'btcvm' ? 'BTCVM' : 'Bitcoin');
+
+/** A list that fills in a destination: the other wallets, then the address
+ *  book, with the entries saved for the network paid on first. */
+function picker(inputId, chainOf) {
+  const select = h('select', { class: 'picker', 'aria-label': t('pick') });
+  select.refill = () => {
+    if (!view) return;
+    const chain = chainOf();
+    const own = (view.wallets || []).filter((w) => !w.active && w.address);
+    const book = view.addressBook || [];
+    const key = JSON.stringify([lang, chain, own.map((w) => [w.address, walletName(w)]), book]);
+    if (select.dataset.key === key) return;
+    select.dataset.key = key;
+    const same = book.filter((c) => c.chain === chain);
+    const other = book.filter((c) => c.chain !== chain);
+    const option = (address, label) => h('option', { value: address }, `${label} — ${short(address)}`);
+    select.replaceChildren(...[
+      h('option', { value: '' }, t('pick')),
+      own.length && h('optgroup', { label: t('myWallets') }, own.map((w) => option(w.address, walletName(w)))),
+      same.length && h('optgroup', { label: t('contactsFor', { chain: chainLabel(chain) }) }, same.map((c) => option(c.address, c.name))),
+      other.length && h('optgroup', { label: `${t('book')} (${t('otherNetwork')})` }, other.map((c) => option(c.address, `${c.name} · ${chainLabel(c.chain)}`))),
+    ].filter(Boolean));
+    select.hidden = !(own.length || book.length);
+  };
+  select.addEventListener('change', () => {
+    if (select.value && $(inputId)) $(inputId).value = select.value;
+    select.value = '';
+  });
+  select.refill();
+  return select;
+}
+
+function refillPickers() {
+  for (const s of document.querySelectorAll('select.picker')) if (s.refill) s.refill();
+}
+
+let feeOptions = null;
+
+const FEE_CHOICES = [['bridge', 'feeBridge'], ['fastest', 'feeFast'], ['halfHour', 'feeHalfHour'], ['hour', 'feeHour'], ['economy', 'feeEconomy']];
+
+/** The sat/vB of a named choice: mempool.space's, or the bridge's estimate. */
+function feeRateOf(key) {
+  if (feeOptions && feeOptions[key]) return feeOptions[key];
+  return key === 'bridge' && view && view.bridge.feeRate ? view.bridge.feeRate : null;
+}
+
+/** The Bitcoin fee to pay: the bridge's estimate, mempool.space's speeds, or
+ *  a rate typed in. The core refuses one out of bounds, and the review shows
+ *  the rate used. */
+function feeBlock(prefix) {
+  const select = h('select', { id: `${prefix}-fee` });
+  const custom = h('input', { id: `${prefix}-fee-custom`, inputmode: 'numeric', placeholder: 'sat/vB', autocomplete: 'off', 'aria-label': t('feeCustom') });
+  select.addEventListener('change', () => {
+    custom.hidden = select.value !== 'custom';
+    updateFeeNote(prefix);
+    refreshMax(prefix);
+  });
+  custom.addEventListener('input', () => updateFeeNote(prefix));
+  custom.addEventListener('change', () => refreshMax(prefix));
+  fillFees(prefix, select, custom);
+  return h('div', { id: `${prefix}-fee-block` },
+    h('label', { for: `${prefix}-fee` }, t('feeLabel')),
+    h('div', { class: 'amount-row' }, select, custom),
+    h('p', { class: 'small', id: `${prefix}-fee-note` }),
+    h('p', { class: 'small muted' }, t('feeHelp')));
+}
+
+function fillFees(prefix, select = $(`${prefix}-fee`), custom = $(`${prefix}-fee-custom`)) {
+  if (!select) return;
+  const choices = FEE_CHOICES.filter(([key]) => feeRateOf(key)).map(([key, label]) => [key, `${t(label)}: ${feeRateOf(key)} sat/vB`]);
+  const key = JSON.stringify(choices);
+  if (select.dataset.key !== key) {
+    select.dataset.key = key;
+    const keep = select.value;
+    select.replaceChildren(...choices.map(([value, text]) => h('option', { value }, text)), h('option', { value: 'custom' }, t('feeCustom')));
+    if ([...select.options].some((o) => o.value === keep)) select.value = keep;
+  }
+  custom.hidden = select.value !== 'custom';
+}
+
+/** The fee rate chosen, sat/vB, or null where none is chosen (BTCVM). A rate
+ *  typed in that isn't valid throws, for `act` to show. */
+function chosenFee(prefix) {
+  const select = $(`${prefix}-fee`);
+  if (!select || select.closest('[hidden]')) return null;
+  if (select.value !== 'custom') return feeRateOf(select.value);
+  const max = (feeOptions && feeOptions.max) || 1000;
+  const raw = $(`${prefix}-fee-custom`).value.trim();
+  const rate = /^\d{1,7}$/.test(raw) ? Number(raw) : 0;
+  if (rate < 1 || rate > max) throw new Error(t('feeInvalid', { max }));
+  return rate;
+}
+
+function updateFeeNote(prefix) {
+  const note = $(`${prefix}-fee-note`);
+  if (!note) return;
+  let rate = null;
+  try { rate = chosenFee(prefix); } catch { rate = null; }
+  const o = feeOptions || {};
+  const belowMin = rate != null && o.minimum && rate < o.minimum;
+  const slow = rate != null && o.hour && rate < o.hour;
+  note.textContent = belowMin ? t('feeBelowMin') : slow ? t('feeSlow') : '';
+  note.className = belowMin ? 'small bad-text' : 'small warn-text';
+}
+
+async function loadFees() {
+  try { feeOptions = await invoke('fee_options'); } catch { feeOptions = null; }
+  for (const prefix of ['send', 'deposit']) { fillFees(prefix); updateFeeNote(prefix); }
+}
+
+/** The fee is chosen only on Bitcoin; BTCVM's is fixed. */
+function showSendFee() {
+  const bitcoin = !!$('send-chain') && $('send-chain').value === 'bitcoin';
+  if ($('send-fee-block')) $('send-fee-block').hidden = !bitcoin;
+  if ($('send-vm-fee')) $('send-vm-fee').hidden = bitcoin;
+}
+
+/** A button that asks for a second click before it acts. */
+function twoStep(label, onConfirm) {
+  const b = h('button', { class: 'danger', type: 'button' }, label);
+  b.addEventListener('click', () => {
+    if (b.dataset.armed) return onConfirm();
+    b.dataset.armed = '1';
+    b.textContent = t('sure');
+    setTimeout(() => { delete b.dataset.armed; b.textContent = label; }, 4000);
+  });
+  return b;
+}
+
+function openWallets() {
+  const after = (v) => { if (v) openWallets(); };
+  const rows = (view.wallets || []).map((w) => h('li', {},
+    h('div', { class: 'grow' },
+      h('div', {}, h('strong', {}, walletName(w)), w.active ? h('span', { class: 'tag vm' }, t('active')) : null),
+      h('div', { class: 'mono small muted' }, w.address || t('needsBackup')),
+      h('div', { class: 'small muted' }, `Bitcoin ${w.bitcoin ? w.bitcoin.confirmed : '…'} BTC · BTCVM ${w.btcvm ? w.btcvm.confirmed : '…'} BTC`)),
+    h('div', { class: 'row' },
+      w.active
+        ? [h('button', { type: 'button', onclick: () => act(() => invoke('backup')).then(after) }, t('backupShort')),
+          h('button', { class: 'danger', type: 'button', onclick: () => act(() => invoke('remove_wallet')).then((v) => { if (v) (v.hasWallet ? openWallets() : $('modal').close()); }) }, t('removeShort'))]
+        : h('button', { type: 'button', onclick: () => act(() => invoke('select_wallet', { id: w.id })).then((v) => { if (v) $('modal').close(); }) }, t('use')),
+      h('button', { type: 'button', onclick: () => renameWalletDialog(w) }, t('rename')))));
+  const name = h('input', { id: 'new-wallet-name', placeholder: t('namePlaceholder'), maxlength: '60', autocomplete: 'off' });
+  openModal(
+    h('h2', {}, t('manageWallets')),
+    h('p', { class: 'small muted' }, t('walletsText')),
+    h('ul', { class: 'list' }, rows),
+    h('label', { for: 'new-wallet-name' }, t('newWalletName')), name,
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('create_wallet', { name: name.value })).then(after) }, t('newWallet')),
+      h('button', { type: 'button', onclick: () => act(() => invoke('import_from_clipboard', { name: name.value })).then(after) }, t('importWallet'))),
+    h('p', { class: 'small muted' }, t('helloTwice')),
+    h('p', { class: 'small muted' }, t('importHint')),
+    h('div', { class: 'row spread' }, h('span'), h('button', { type: 'button', onclick: () => $('modal').close() }, t('close'))));
+}
+
+function renameWalletDialog(w) {
+  const input = h('input', { id: 'rename-wallet', value: w.name || '', placeholder: walletName(w), maxlength: '60', autocomplete: 'off' });
+  openModal(
+    h('h2', {}, `${t('rename')}: ${walletName(w)}`),
+    h('label', { for: 'rename-wallet' }, t('newName')), input,
+    h('div', { class: 'row spread' },
+      h('button', { type: 'button', onclick: () => openWallets() }, t('cancel')),
+      h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('rename_wallet', { id: w.id, name: input.value })).then((v) => { if (v) openWallets(); }) }, t('save'))));
+  input.focus();
+}
+
+function openBook() {
+  const book = view.addressBook || [];
+  const rows = book.map((c) => h('li', {},
+    h('div', { class: 'grow' },
+      h('div', {}, h('strong', {}, c.name), h('span', { class: c.chain === 'btcvm' ? 'tag vm' : 'tag' }, chainLabel(c.chain))),
+      h('div', { class: 'mono small' }, c.address)),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', onclick: () => renameContactDialog(c) }, t('rename')),
+      twoStep(t('delete'), () => act(() => invoke('remove_contact', { address: c.address, chain: c.chain })).then((v) => { if (v) openBook(); })))));
+  const name = h('input', { id: 'c-name', maxlength: '60', autocomplete: 'off' });
+  const address = h('input', { id: 'c-address', spellcheck: 'false', autocomplete: 'off', placeholder: 'bc1q…' });
+  const chain = h('select', { id: 'c-chain' }, h('option', { value: 'bitcoin' }, 'Bitcoin'), h('option', { value: 'btcvm' }, 'BTCVM'));
+  openModal(
+    h('h2', {}, t('bookTitle')),
+    h('p', { class: 'small muted' }, t('bookText')),
+    book.length ? h('ul', { class: 'list' }, rows) : h('p', { class: 'muted' }, t('noContacts')),
+    h('h3', {}, t('addContact')),
+    h('label', { for: 'c-name' }, t('contactName')), name,
+    h('label', { for: 'c-address' }, t('contactAddress')), address,
+    h('label', { for: 'c-chain' }, t('network')), chain,
+    h('div', { class: 'row spread' },
+      h('button', { type: 'button', onclick: () => $('modal').close() }, t('close')),
+      h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('add_contact', { name: name.value, address: address.value, chain: chain.value })).then((v) => { if (v) openBook(); }) }, t('addContact'))));
+}
+
+function renameContactDialog(c) {
+  const input = h('input', { id: 'rename-contact', value: c.name, maxlength: '60', autocomplete: 'off' });
+  openModal(
+    h('h2', {}, `${t('rename')}: ${c.name}`),
+    h('p', { class: 'mono small' }, `${chainLabel(c.chain)} · ${c.address}`),
+    h('label', { for: 'rename-contact' }, t('newName')), input,
+    h('div', { class: 'row spread' },
+      h('button', { type: 'button', onclick: () => openBook() }, t('cancel')),
+      h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('rename_contact', { address: c.address, chain: c.chain, name: input.value })).then((v) => { if (v) openBook(); }) }, t('save'))));
+  input.focus();
 }
 
 // --- settings and about ------------------------------------------------------------
@@ -522,6 +830,12 @@ async function openAbout() {
 $('lang').addEventListener('click', () => act(() => invoke('set_language', { language: lang === 'es' ? 'en' : 'es' })));
 $('open-settings').addEventListener('click', () => view && openSettings());
 $('open-about').addEventListener('click', () => openAbout().catch(showError));
+$('wallet-select').addEventListener('change', (e) => act(() => invoke('select_wallet', { id: e.target.value })).then(renderChrome));
+$('open-wallets').addEventListener('click', () => view && openWallets());
+$('open-book').addEventListener('click', () => view && openBook());
+if (!$('toast').showPopover) $('toast').hidden = true;
+loadFees();
+setInterval(loadFees, 10 * 60 * 1000);
 
 listen('view', (event) => apply(event.payload));
 invoke('hello', { language: navigator.language || 'en' }).then(apply).catch(showError);

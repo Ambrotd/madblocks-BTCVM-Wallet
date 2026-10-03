@@ -80,6 +80,17 @@ pub struct Audit {
     pub solvent: bool,
 }
 
+/// Bitcoin fee rates, sat/vB, as mempool.space recommends them.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeeEstimates {
+    pub fastest_fee: f64,
+    pub half_hour_fee: f64,
+    pub hour_fee: f64,
+    pub economy_fee: f64,
+    pub minimum_fee: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct ApiError {
     /// 0 when there was no answer.
@@ -232,6 +243,17 @@ impl Bridge {
         Ok(BufReader::new(
             response.into_body().into_reader().take(1 << 20),
         ))
+    }
+
+    /// mempool.space's recommended Bitcoin fee rates. A third party, used
+    /// only to offer choices; the wallet bounds whatever is chosen.
+    pub fn recommended_fees(&self) -> Result<FeeEstimates, ApiError> {
+        decode(
+            self.agent
+                .get("https://mempool.space/api/v1/fees/recommended")
+                .call()
+                .map_err(network)?,
+        )
     }
 
     fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
