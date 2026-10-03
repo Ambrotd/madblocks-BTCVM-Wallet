@@ -103,6 +103,13 @@ pub trait Gate {
 
     /// Removes the key `name`.
     fn delete(&self, name: &str) -> Result<(), VaultError>;
+
+    /// Whether the key `name` is certified to be in hardware (a TPM): true
+    /// or false when the gate can tell, None when it can't. Asks nothing.
+    fn attested(&self, name: &str) -> Result<Option<bool>, VaultError> {
+        let _ = name;
+        Ok(None)
+    }
 }
 
 /// The vault in `dir`, unlocked through `gate`.
@@ -144,6 +151,13 @@ impl<G: Gate> Vault<G> {
         }
         let file = self.file();
         self.seal_into(key, &file)
+    }
+
+    /// Whether the vault's gate key is certified to be in hardware (a TPM).
+    /// Asks nothing.
+    pub fn attested(&self) -> Result<Option<bool>, VaultError> {
+        let sealed = self.read(&self.file())?;
+        self.gate.attested(&sealed.credential)
     }
 
     /// Decrypts the key, asking for Windows Hello. The key must be the one

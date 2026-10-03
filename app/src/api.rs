@@ -91,6 +91,15 @@ pub struct FeeEstimates {
     pub minimum_fee: f64,
 }
 
+/// BTC's price in dollars and euros, from mempool.space.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct Prices {
+    #[serde(rename = "USD")]
+    pub usd: f64,
+    #[serde(rename = "EUR")]
+    pub eur: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct ApiError {
     /// 0 when there was no answer.
@@ -251,6 +260,17 @@ impl Bridge {
         decode(
             self.agent
                 .get("https://mempool.space/api/v1/fees/recommended")
+                .call()
+                .map_err(network)?,
+        )
+    }
+
+    /// BTC's price from mempool.space, to show values in a currency. Nothing
+    /// is signed or sized from it.
+    pub fn prices(&self) -> Result<Prices, ApiError> {
+        decode(
+            self.agent
+                .get("https://mempool.space/api/v1/prices")
                 .call()
                 .map_err(network)?,
         )

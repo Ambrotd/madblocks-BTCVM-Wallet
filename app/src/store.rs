@@ -24,6 +24,9 @@ pub struct Settings {
     pub notified_signer_change: Option<String>,
     /// The wallet shown, by id.
     pub active: Option<String>,
+    /// The currency values are shown in too: "EUR", "USD" or "none". Unset,
+    /// it follows the language.
+    pub fiat: Option<String>,
     pub wallets: Vec<WalletRecord>,
     pub address_book: Vec<Contact>,
 
@@ -52,6 +55,11 @@ pub struct WalletRecord {
     pub backup_confirmed: bool,
     /// Made here: nothing can be received until it's backed up.
     pub backup_required: bool,
+    /// Whether Windows certified its Windows Hello key to be in a TPM, once
+    /// asked: None until then, or while Windows can't tell.
+    pub hardware: Option<bool>,
+    /// The user has seen that Windows can't certify it.
+    pub software_key_seen: bool,
     pub outgoing: Vec<Outgoing>,
     pub withdrawals: Vec<Withdrawal>,
 }
@@ -117,6 +125,8 @@ pub fn load(dir: &Path) -> Settings {
             created: 0,
             backup_confirmed: s.backup_confirmed,
             backup_required: s.backup_required,
+            hardware: None,
+            software_key_seen: false,
             outgoing: std::mem::take(&mut s.outgoing),
             withdrawals: std::mem::take(&mut s.withdrawals),
         });

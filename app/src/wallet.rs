@@ -8,7 +8,7 @@
 //! signed transaction back, and records the payment before it is sent.
 
 use crate::api::{
-    AddressView, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry, FeeEstimates,
+    AddressView, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry, FeeEstimates, Prices,
 };
 use crate::journal;
 use crate::store::{self, FIRST, Outgoing, Settings, WalletRecord, Withdrawal};
@@ -155,6 +155,48 @@ pub struct Wallet {
     refresh_again: AtomicBool,
     next_id: AtomicU64,
     language: Mutex<String>,
+    /// BTC's price, and when it was fetched.
+    prices: Mutex<Option<(Prices, u64)>>,
+    /// The active wallet's transactions seen so far, to tell what's new.
+    seen: Mutex<Seen>,
+    /// Payments received, for the window to announce once.
+    notices: Mutex<Vec<Notice>>,
+    /// Wallets whose key Windows was asked to certify since the app started.
+    attestation_asked: Mutex<HashSet<String>>,
+}
+
+#[derive(Default)]
+struct Seen {
+    wallet: Option<String>,
+    /// The chains whose history was read for that wallet.
+    chains: HashSet<&'static str>,
+    /// chain:txid.
+    txids: HashSet<String>,
+}
+
+/// A payment that arrived: on which chain, how much, and whether it's
+/// confirmed yet.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    pub chain: &'static str,
+    pub amount: String,
+    pub confirmed: bool,
+}
+
+/// The active wallet's address as a QR code: its modules row by row, "1"
+/// for dark.
+#[derive(Serialize)]
+pub struct Qr {
+    pub width: usize,
+    pub modules: String,
+    pub address: String,
+}
+
+/// A currency and BTC's price in it.
+#[derive(Serialize, Clone)]
+pub struct Fiat {
+    pub currency: &'static str,
+    pub price: f64,
 }
 
 // --- what the window shows ---------------------------------------------------
@@ -191,6 +233,15 @@ pub struct View {
     pub btcvm_incoming: Option<String>,
     /// An unexpected failure since the app started, logged in detail.
     pub internal_error: Option<String>,
+    /// What the user chose to see values in: "EUR", "USD" or "none".
+    pub fiat_choice: String,
+    /// BTC's price in that currency, once known.
+    pub fiat: Option<Fiat>,
+    /// Whether Windows certified the active wallet's Windows Hello key to be
+    /// in a TPM.
+    pub hardware: Option<bool>,
+    /// Windows can't certify it, and the user hasn't seen that yet.
+    pub software_key_warning: bool,
     pub updated: u64,
 }
 
@@ -206,6 +257,7 @@ pub struct WalletView {
     pub needs_backup: bool,
     pub bitcoin: Option<Balance>,
     pub btcvm: Option<Balance>,
+    pub hardware: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -361,6 +413,17 @@ fn balance(v: Option<&AddressView>) -> Option<Balance> {
     })
 }
 
+/// The currency to show values in: the user's choice, or by language.
+fn fiat_choice(settings: &Settings, language: &str) -> &'static str {
+    match settings.fiat.as_deref() {
+        Some("EUR") => "EUR",
+        Some("USD") => "USD",
+        Some("none") => "none",
+        _ if language == "es" => "EUR",
+        _ => "USD",
+    }
+}
+
 /// What deposits on their way will add on BTCVM: those confirming, waiting
 /// for the bridge's capacity, or being credited without a credit yet. Each
 /// counts as the bridge says it will credit it, or its amount less the
@@ -418,6 +481,10 @@ impl Wallet {
             refresh_again: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             language: Mutex::new(language),
+            prices: Mutex::new(None),
+            seen: Mutex::new(Seen::default()),
+            notices: Mutex::new(Vec::new()),
+            attestation_asked: Mutex::new(HashSet::new()),
         };
         // Saves a single-wallet install in the new form at once.
         let settings = wallet.settings.guard().clone();
@@ -580,9 +647,26 @@ impl Wallet {
                     needs_backup,
                     bitcoin,
                     btcvm,
+                    hardware: w.hardware,
                 }
             })
             .collect();
+        let fiat_choice = fiat_choice(&settings, &self.language());
+        let fiat = self
+            .prices
+            .guard()
+            .as_ref()
+            .and_then(|(p, _)| match fiat_choice {
+                "EUR" => Some(Fiat {
+                    currency: "EUR",
+                    price: p.eur,
+                }),
+                "USD" => Some(Fiat {
+                    currency: "USD",
+                    price: p.usd,
+                }),
+                _ => None,
+            });
         View {
             version: env!("CARGO_PKG_VERSION"),
             server: self.bridge().base().to_string(),
@@ -627,6 +711,10 @@ impl Wallet {
                 None
             },
             internal_error: journal::last_panic(),
+            fiat_choice: fiat_choice.into(),
+            fiat,
+            hardware: record.hardware,
+            software_key_warning: record.hardware == Some(false) && !record.software_key_seen,
             updated: snap.updated,
         }
     }
@@ -795,6 +883,119 @@ impl Wallet {
         if self.active_id() == active {
             *self.snapshot.guard() = snap;
         }
+        self.note_new_payments();
+        self.refresh_prices(false);
+        self.ask_attestations();
+    }
+
+    /// Notes payments to the active wallet not seen before, for the window to
+    /// announce. A first look at a wallet, or at one of its chains, only
+    /// remembers what is there.
+    fn note_new_payments(&self) {
+        let (wallet, entries) = {
+            let snap = self.snapshot.guard();
+            let Some(wallet) = snap.wallet.clone() else {
+                return;
+            };
+            let mut entries = Vec::new();
+            for (chain, view) in [("bitcoin", &snap.bitcoin), ("btcvm", &snap.btcvm)] {
+                if let Some(view) = view {
+                    for h in &view.history {
+                        entries.push((chain, h.txid.clone(), h.net.clone(), h.confirmations));
+                    }
+                }
+            }
+            (wallet, entries)
+        };
+        let mut seen = self.seen.guard();
+        if seen.wallet.as_deref() != Some(wallet.as_str()) {
+            *seen = Seen {
+                wallet: Some(wallet),
+                ..Seen::default()
+            };
+        }
+        let known: HashSet<&'static str> = seen.chains.clone();
+        let mut notices = Vec::new();
+        for (chain, txid, net, confirmations) in entries {
+            seen.chains.insert(chain);
+            let new = seen.txids.insert(format!("{chain}:{txid}"));
+            if new && known.contains(chain) {
+                // Only what comes in: a net loss doesn't parse as an amount.
+                if let Ok(amount) = parse_btc(&net) {
+                    if amount > 0 {
+                        notices.push(Notice {
+                            chain,
+                            amount: format_btc(amount),
+                            confirmed: confirmations > 0,
+                        });
+                    }
+                }
+            }
+        }
+        drop(seen);
+        if !notices.is_empty() {
+            for n in &notices {
+                journal::info(&format!("received {} BTC on {}", n.amount, n.chain));
+            }
+            self.notices.guard().extend(notices);
+        }
+    }
+
+    /// The payments received since the last call.
+    pub fn take_notices(&self) -> Vec<Notice> {
+        std::mem::take(&mut *self.notices.guard())
+    }
+
+    /// Fetches BTC's price every ten minutes, or now, unless the user turned
+    /// values off.
+    fn refresh_prices(&self, now_please: bool) {
+        let choice = fiat_choice(&self.settings.guard(), &self.language());
+        if choice == "none" {
+            return;
+        }
+        let fresh = self
+            .prices
+            .guard()
+            .as_ref()
+            .is_some_and(|(_, at)| now().saturating_sub(*at) < 600);
+        if fresh && !now_please {
+            return;
+        }
+        if let Ok(p) = self.bridge().prices() {
+            if p.usd.is_finite() && p.eur.is_finite() && p.usd > 0.0 && p.eur > 0.0 {
+                *self.prices.guard() = Some((p, now()));
+            }
+        }
+    }
+
+    /// Asks Windows, once per wallet and run, whether each wallet's Windows
+    /// Hello key is certified to be in a TPM. Asks the user nothing.
+    fn ask_attestations(&self) {
+        let ids: Vec<String> = self
+            .settings
+            .guard()
+            .wallets
+            .iter()
+            .filter(|w| w.hardware.is_none())
+            .map(|w| w.id.clone())
+            .collect();
+        for id in ids {
+            if !self.attestation_asked.guard().insert(id.clone()) {
+                continue;
+            }
+            match self.vault(&id).attested() {
+                Ok(Some(hardware)) => {
+                    if !hardware {
+                        journal::warn(&format!(
+                            "Windows can't certify wallet {id}'s Windows Hello key is in a TPM"
+                        ));
+                    }
+                    self.update_record(&id, |r| r.hardware = Some(hardware));
+                }
+                Ok(None) => {}
+                Err(e) => journal::warn(&format!("asking about wallet {id}'s key: {e}")),
+            }
+        }
     }
 
     /// Checks each withdrawal of wallet `id` not yet confirmed on Bitcoin.
@@ -897,6 +1098,8 @@ impl Wallet {
                 created: now(),
                 backup_confirmed: !made_here,
                 backup_required: made_here,
+                hardware: None,
+                software_key_seen: false,
                 outgoing: Vec::new(),
                 withdrawals: Vec::new(),
             });
@@ -1132,6 +1335,106 @@ impl Wallet {
     /// estimate. The core refuses one outside its bounds.
     fn fee_rate(bridge: &VerifiedBridge, chosen: Option<u64>) -> u64 {
         chosen.unwrap_or(bridge.btc_fee_rate)
+    }
+
+    // --- receiving, values and the history -----------------------------------
+
+    /// The active wallet's address as a QR code, for a phone to scan. In
+    /// capitals: a QR code holds them more compactly, and wallets read them
+    /// as the same address. Just the address, with no "bitcoin:", since it
+    /// is the same on BTCVM.
+    pub fn receive_qr(&self) -> Outcome<Qr> {
+        let address = self
+            .view()
+            .address
+            .map_or_else(|| fail("back up your key before receiving"), Ok)?;
+        let code = qrcode::QrCode::with_error_correction_level(
+            address.to_ascii_uppercase().as_bytes(),
+            qrcode::EcLevel::M,
+        )
+        .map_err(|e| Failure {
+            message: format!("the QR code: {e}"),
+            untrusted: false,
+            canceled: false,
+        })?;
+        Ok(Qr {
+            width: code.width(),
+            modules: code
+                .to_colors()
+                .iter()
+                .map(|c| if *c == qrcode::Color::Dark { '1' } else { '0' })
+                .collect(),
+            address,
+        })
+    }
+
+    pub fn set_fiat(&self, currency: &str) -> Outcome<View> {
+        if !["EUR", "USD", "none"].contains(&currency) {
+            return fail("unknown currency");
+        }
+        self.update(|s| s.fiat = Some(currency.to_string()));
+        self.refresh_prices(true);
+        Ok(self.view())
+    }
+
+    /// The user has seen that Windows can't certify the active wallet's key.
+    pub fn software_key_seen(&self) -> View {
+        if let Some(id) = self.active_id() {
+            self.update_record(&id, |r| r.software_key_seen = true);
+        }
+        self.view()
+    }
+
+    /// The active wallet's history, as far back as the bridge returns it, as
+    /// CSV, with a name for the file.
+    pub fn history_csv(&self) -> Outcome<(String, String)> {
+        let id = self
+            .active_id()
+            .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
+        let address = self.address_of(&id).unwrap_or_default();
+        let es = self.language() == "es";
+        let mut rows = Vec::new();
+        {
+            let snap = self.snapshot.guard();
+            if snap.wallet.as_deref() != Some(id.as_str()) {
+                return fail("this wallet's balance hasn't loaded yet");
+            }
+            for (chain, view) in [("Bitcoin", &snap.bitcoin), ("BTCVM", &snap.btcvm)] {
+                for h in view.iter().flat_map(|v| &v.history) {
+                    rows.push((
+                        h.time,
+                        chain,
+                        h.txid.clone(),
+                        h.net.clone(),
+                        h.confirmations,
+                    ));
+                }
+            }
+        }
+        rows.sort_by_key(|r| std::cmp::Reverse(r.0.unwrap_or(i64::MAX)));
+        let mut csv = String::from(if es {
+            "fecha_utc,red,txid,cantidad_btc,confirmaciones,direccion\r\n"
+        } else {
+            "date_utc,network,txid,amount_btc,confirmations,address\r\n"
+        });
+        for (time, chain, txid, net, confirmations) in rows {
+            let date = time
+                .and_then(|t| u64::try_from(t).ok())
+                .map(journal::timestamp)
+                .unwrap_or_default();
+            csv.push_str(&format!(
+                "{date},{chain},{txid},{net},{confirmations},{address}\r\n"
+            ));
+        }
+        let name: String = self
+            .record(&id)
+            .map(|r| self.display_name(&r))
+            .unwrap_or_default()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let day = journal::timestamp(now())[..10].to_string();
+        Ok((format!("madblocks-btcvm-{name}-{day}.csv"), csv))
     }
 
     // --- payments: review, then sign exactly what was reviewed ---------------

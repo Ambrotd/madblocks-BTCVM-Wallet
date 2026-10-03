@@ -90,6 +90,16 @@ const STRINGS = {
     internalTitle: 'Algo ha fallado dentro de la wallet',
     internalText: 'La wallet sigue funcionando y no se ha firmado ni enviado nada por ello. El detalle está en el registro; si se repite, envíaselo a madblocks (no contiene claves).',
     openLogs: 'Abrir el registro',
+    showQr: 'QR', qrTitle: 'Tu dirección en QR',
+    qrText: 'La misma dirección en Bitcoin y en BTCVM: quien te pague elige la red. Comprueba en su pantalla que la dirección que ha leído es esta:',
+    exportCsv: 'Exportar CSV', exported: 'Historial guardado',
+    currency: 'Mostrar también los valores en', currencyNone: 'No mostrar (no se consulta el precio)',
+    received: 'Recibido: +{amount} BTC en {chain}', receivedPending: 'Llegando: +{amount} BTC en {chain} (sin confirmar)',
+    tpmNo: 'sin TPM certificado',
+    softwareKeyTitle: 'Windows no puede certificar que la clave de esta cartera esté en un chip TPM',
+    softwareKeyText: 'Tu clave sigue cifrada y cada pago pide Windows Hello, pero la llave que la abre podría estar guardada por software en lugar de en el chip de seguridad. Pasa en equipos sin TPM o con uno antiguo. Un malware con permisos de administrador lo tendría más fácil: para cantidades grandes, usa un equipo con TPM 2.0.',
+    understood: 'Entendido',
+    tpmStatus: 'Clave de Windows Hello de la cartera en uso', tpmCertified: 'en un chip TPM (certificado por Windows)', tpmNotCertified: 'Windows no certifica que esté en un TPM', tpmUnknown: 'comprobando…',
   },
   en: {
     byline: 'by madblocks · XPR Network BP and Metal validator',
@@ -175,6 +185,16 @@ const STRINGS = {
     internalTitle: 'Something went wrong inside the wallet',
     internalText: 'The wallet keeps working, and nothing was signed or sent because of it. The details are in the log; if it happens again, send it to madblocks (it holds no keys).',
     openLogs: 'Open the log',
+    showQr: 'QR', qrTitle: 'Your address as a QR code',
+    qrText: 'The same address on Bitcoin and on BTCVM: whoever pays you chooses the network. Check on their screen that the address they read is this one:',
+    exportCsv: 'Export CSV', exported: 'History saved',
+    currency: 'Also show values in', currencyNone: 'Don\'t show (the price isn\'t fetched)',
+    received: 'Received: +{amount} BTC on {chain}', receivedPending: 'Coming in: +{amount} BTC on {chain} (unconfirmed)',
+    tpmNo: 'no certified TPM',
+    softwareKeyTitle: 'Windows can\'t certify that this wallet\'s key is in a TPM chip',
+    softwareKeyText: 'Your key is still encrypted and every payment asks for Windows Hello, but the key that opens it may be kept in software rather than in the security chip. That happens on PCs without a TPM or with an old one. Malware with administrator rights would have an easier time: for large amounts, use a PC with TPM 2.0.',
+    understood: 'Got it',
+    tpmStatus: 'Windows Hello key of the wallet in use', tpmCertified: 'in a TPM chip (certified by Windows)', tpmNotCertified: 'Windows doesn\'t certify it\'s in a TPM', tpmUnknown: 'checking…',
   },
 };
 
@@ -276,6 +296,8 @@ const ERRORS_ES = [
   ['back up your key before receiving', 'haz la copia de seguridad de tu clave antes de recibir'],
   ['copy your key (WIF) first, then press the button', 'copia primero tu clave (WIF) y luego pulsa el botón'],
   ['no such link', 'ese enlace no existe'],
+  ['unknown currency', 'moneda desconocida'],
+  ['the QR code: {}', 'el código QR: {0}'],
   ['there is no log yet', 'todavía no hay registro'],
   ['something went wrong inside the wallet; nothing was signed or sent. The details are in the log (Settings)', 'algo ha fallado dentro de la wallet; no se ha firmado ni enviado nada. El detalle está en el registro (Ajustes)'],
   // The vault and Windows Hello.
@@ -343,6 +365,14 @@ function h(tag, attrs, ...children) {
 }
 
 const $ = (id) => document.getElementById(id);
+
+/** A BTC amount's value in the chosen currency, or null. */
+function fiat(btc) {
+  if (!view || !view.fiat || btc == null) return null;
+  const value = Number(btc) * view.fiat.price;
+  if (!Number.isFinite(value)) return null;
+  return new Intl.NumberFormat(lang === 'es' ? 'es-ES' : 'en-US', { style: 'currency', currency: view.fiat.currency }).format(value);
+}
 const short = (s) => (s && s.length > 20 ? `${s.slice(0, 10)}…${s.slice(-8)}` : s);
 const when = (secs) => (secs ? new Date(secs * 1000).toLocaleString(lang) : '');
 
@@ -448,6 +478,10 @@ function renderBanners() {
   if (view.connectionError) out.push(banner(false, t('bannerOffline'), h('p', {}, tr(view.connectionError))));
   if (b.paused) out.push(banner(false, t('bannerPaused')));
   if (b.solvent === false) out.push(banner(true, t('bannerInsolvent')));
+  if (view.hasWallet && view.softwareKeyWarning) {
+    out.push(banner(false, t('softwareKeyTitle'), h('p', {}, t('softwareKeyText')),
+      h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => act(() => invoke('software_key_seen')) }, t('understood')))));
+  }
   if (view.hasWallet && view.receiveBlocked) {
     out.push(banner(false, t('bannerBackup'), h('p', {}, t('bannerBackupText')),
       h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('backup')) }, t('backupNow')))));
@@ -581,6 +615,7 @@ function balanceCard(cls, title, bal, note, incoming) {
     h('h2', {}, h('img', { src: cls === 'vm' ? 'btcvm.svg' : 'bitcoin.svg', alt: '', class: 'coin' }), title),
     bal
       ? h('div', {}, h('div', { class: 'amount' }, bal.confirmed, ' ', h('small', {}, 'BTC')),
+        fiat(bal.confirmed) ? h('div', { class: 'small muted' }, `≈ ${fiat(bal.confirmed)}`) : null,
         bal.pending && !/^-?0(\.0*)?$/.test(bal.pending) ? h('div', { class: 'small muted' }, `${t('pending')}: ${bal.pending} BTC`) : null,
         incoming ? h('div', { class: 'small muted' }, t('incomingDeposit', { amount: incoming })) : null)
       : h('div', { class: 'muted' }, note ? tr(t(note)) : t('loading')));
@@ -596,6 +631,7 @@ function updateWallet() {
         h('p', { class: 'small muted' }, t('sameAddress')),
         h('div', { class: 'row' },
           h('button', { type: 'button', onclick: () => invoke('copy_address').then(() => toast(t('copied'))).catch(showError) }, t('copy')),
+          h('button', { type: 'button', onclick: openQr }, t('showQr')),
           link('address-bitcoin', view.address, t('onBitcoin')),
           link('address-btcvm', view.address, t('onBtcvm'))))
       : h('p', { class: 'muted' }, t('blockedReceive')));
@@ -626,7 +662,8 @@ function updateWallet() {
   $('inflight').replaceChildren(h('h2', {}, t('inFlight')),
     items.length ? h('ul', { class: 'list' }, items) : h('p', { class: 'muted' }, t('nothingInFlight')));
 
-  $('history').replaceChildren(h('h2', {}, t('history')),
+  $('history').replaceChildren(
+    h('div', { class: 'row spread' }, h('h2', {}, t('history')), view.history.length ? h('button', { class: 'link', type: 'button', onclick: exportCsv }, t('exportCsv')) : null),
     view.history.length
       ? h('ul', { class: 'list' }, view.history.map((r) => h('li', {},
         h('span', {}, h('span', { class: r.chain === 'btcvm' ? 'tag vm' : 'tag' }, r.chain === 'btcvm' ? 'BTCVM' : 'Bitcoin'), ' ',
@@ -710,7 +747,7 @@ function showReview(r) {
     ...notes,
     h('table', {}, h('tbody', {}, rows,
       h('tr', {}, h('td', {}, t('fee'), r.feeRate ? ` (${t('feeRateUsed', { rate: r.feeRate })})` : ''), h('td', { class: 'num' }, `${r.fee} BTC`)),
-      h('tr', { class: 'total' }, h('td', {}, t('total')), h('td', { class: 'num' }, `${r.total} BTC`)),
+      h('tr', { class: 'total' }, h('td', {}, t('total')), h('td', { class: 'num' }, `${r.total} BTC`, fiat(r.total) ? h('div', { class: 'small muted' }, `≈ ${fiat(r.total)}`) : null)),
       r.credited ? h('tr', {}, h('td', {}, t('credited'), r.confirmations ? ` (${t('afterConf', { n: r.confirmations })})` : ''), h('td', { class: 'num' }, `${r.credited} BTC`)) : null,
       r.payoutFee ? h('tr', {}, h('td', {}, t('payoutFee')), h('td', { class: 'num' }, `${r.payoutFee} BTC`)) : null)),
     status,
@@ -865,7 +902,8 @@ function openWallets() {
   const after = (v) => { if (v) openWallets(); };
   const rows = (view.wallets || []).map((w) => h('li', {},
     h('div', { class: 'grow' },
-      h('div', {}, h('strong', {}, walletName(w)), w.active ? h('span', { class: 'tag vm' }, t('active')) : null),
+      h('div', {}, h('strong', {}, walletName(w)), w.active ? h('span', { class: 'tag vm' }, t('active')) : null,
+        w.hardware === false ? h('span', { class: 'tag warn' }, t('tpmNo')) : null),
       h('div', { class: 'mono small muted' }, w.address || t('needsBackup')),
       h('div', { class: 'small muted' }, `Bitcoin ${w.bitcoin ? w.bitcoin.confirmed : '…'} BTC · BTCVM ${w.btcvm ? w.btcvm.confirmed : '…'} BTC`)),
     h('div', { class: 'row' },
@@ -936,6 +974,38 @@ function renameContactDialog(c) {
   input.focus();
 }
 
+/** The address as a QR code, drawn here from the modules the Rust side
+ *  computed: dark on white whatever the theme, with the quiet zone scanners
+ *  need. */
+async function openQr() {
+  const qr = await act(() => invoke('receive_qr'));
+  if (!qr) return;
+  const scale = 6;
+  const quiet = 4;
+  const size = (qr.width + quiet * 2) * scale;
+  const canvas = h('canvas', { width: String(size), height: String(size), class: 'qr', role: 'img', 'aria-label': qr.address });
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#000';
+  for (let y = 0; y < qr.width; y++) {
+    for (let x = 0; x < qr.width; x++) {
+      if (qr.modules[y * qr.width + x] === '1') ctx.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+    }
+  }
+  openModal(
+    h('h2', {}, t('qrTitle')),
+    h('div', { class: 'qr-wrap' }, canvas),
+    h('p', { class: 'small muted' }, t('qrText')),
+    h('p', { class: 'mono' }, qr.address),
+    h('div', { class: 'row spread' }, h('span'), h('button', { type: 'button', onclick: () => $('modal').close() }, t('close'))));
+}
+
+async function exportCsv() {
+  const saved = await act(() => invoke('export_history'));
+  if (saved === true) toast(t('exported'));
+}
+
 // --- settings and about ------------------------------------------------------------
 
 function openSettings() {
@@ -943,6 +1013,9 @@ function openSettings() {
   const language = h('select', { id: 'language' }, h('option', { value: 'es' }, 'Español'), h('option', { value: 'en' }, 'English'));
   language.value = lang;
   language.addEventListener('change', () => act(() => invoke('set_language', { language: language.value })).then(openSettings));
+  const currency = h('select', { id: 'fiat' }, h('option', { value: 'EUR' }, 'EUR (€)'), h('option', { value: 'USD' }, 'USD ($)'), h('option', { value: 'none' }, t('currencyNone')));
+  currency.value = view.fiatChoice || 'none';
+  currency.addEventListener('change', () => act(() => invoke('set_fiat', { currency: currency.value })).then(openSettings));
   openModal(
     h('h2', {}, t('settings')),
     h('label', { for: 'language' }, t('language')), language,
@@ -953,8 +1026,10 @@ function openSettings() {
     view.hasWallet ? h('div', { class: 'row' },
       h('button', { type: 'button', onclick: () => act(() => invoke('backup')) }, t('backupKey')),
       h('button', { class: 'danger', type: 'button', onclick: () => act(() => invoke('remove_wallet')) }, t('removeWallet'))) : null,
+    h('label', { for: 'fiat' }, t('currency')), currency,
     h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => invoke('open_logs').catch(showError) }, t('openLogs'))),
     h('h3', {}, t('security')),
+    view.hasWallet ? h('p', { class: 'small' }, `${t('tpmStatus')}: `, view.hardware === true ? t('tpmCertified') : view.hardware === false ? t('tpmNotCertified') : t('tpmUnknown')) : null,
     h('p', { class: 'small' }, t('securityText')),
     h('p', { class: 'small' }, t('tradeoff')),
     h('div', { class: 'row spread' }, h('span'), h('button', { type: 'button', onclick: () => $('modal').close() }, t('close'))));
@@ -988,5 +1063,9 @@ loadFees();
 setInterval(loadFees, 10 * 60 * 1000);
 
 listen('view', (event) => apply(event.payload));
+listen('notice', (event) => {
+  const n = event.payload;
+  toast(t(n.confirmed ? 'received' : 'receivedPending', { amount: n.amount, chain: n.chain === 'btcvm' ? 'BTCVM' : 'Bitcoin' }));
+});
 invoke('hello', { language: navigator.language || 'en' }).then(apply).catch(showError);
 invoke('refresh').then(apply).catch(showError);

@@ -3,7 +3,8 @@
 
 use crate::{Gate, VaultError};
 use windows::Security::Credentials::{
-    KeyCredential, KeyCredentialCreationOption, KeyCredentialManager, KeyCredentialStatus,
+    KeyCredential, KeyCredentialAttestationStatus, KeyCredentialCreationOption,
+    KeyCredentialManager, KeyCredentialStatus,
 };
 use windows::Security::Cryptography::Core::{
     AsymmetricAlgorithmNames, AsymmetricKeyAlgorithmProvider, CryptographicEngine,
@@ -93,6 +94,21 @@ impl Gate for WindowsHello {
         KeyCredentialManager::DeleteAsync(&HSTRING::from(name))
             .and_then(|op| op.join())
             .map_err(win)
+    }
+
+    /// Windows attests a key the TPM holds. "Not supported" means it can't:
+    /// a key kept in software, on a PC without a TPM, or a TPM too old to
+    /// attest. A temporary failure says nothing either way.
+    fn attested(&self, name: &str) -> Result<Option<bool>, VaultError> {
+        let result = open(name)?
+            .GetAttestationAsync()
+            .and_then(|op| op.join())
+            .map_err(win)?;
+        Ok(match result.Status().map_err(win)? {
+            KeyCredentialAttestationStatus::Success => Some(true),
+            KeyCredentialAttestationStatus::NotSupported => Some(false),
+            _ => None,
+        })
     }
 }
 

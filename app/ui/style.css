@@ -227,3 +227,8 @@ body.busy { cursor: progress; }
 #modal-body h3 { margin: 18px 0 4px; font-size: 14px; }
 .bad-text { color: var(--bad-ink); }
 .warn-text { color: var(--warn-ink); }
+
+/* The receive QR code: dark on white in both themes, as scanners need. */
+.qr-wrap { display: flex; justify-content: center; margin: 8px 0 12px; }
+canvas.qr { width: 222px; height: 222px; image-rendering: pixelated; border-radius: 10px; }
+.tag.warn { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line); }

@@ -164,10 +164,23 @@ fn show_backup(app: &AppHandle, language: &str, wallet: &str, wif: &str) -> bool
     }
 }
 
-/// Pushes the latest view to the window, and warns once about a new signer
-/// change.
+/// Pushes the latest view to the window, announces payments received
+/// (flashing the taskbar button when the window isn't in front), and warns
+/// once about a new signer change.
 fn publish(app: &AppHandle, w: &Wallet) {
     let _ = app.emit("view", w.view());
+    let notices = w.take_notices();
+    if !notices.is_empty() {
+        for n in &notices {
+            let _ = app.emit("notice", n);
+        }
+        if let Some(window) = app.get_webview_window("main") {
+            if !window.is_focused().unwrap_or(true) {
+                let _ =
+                    window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+            }
+        }
+    }
     if let Some(change) = w.new_signer_change() {
         let t = texts(&w.language());
         app.dialog()
@@ -451,6 +464,47 @@ async fn open_link(
         .map_err(|e| failure(e.to_string()))
 }
 
+#[tauri::command]
+async fn receive_qr(w: State<'_, Shared>) -> Result<wallet::Qr, Failure> {
+    w.receive_qr()
+}
+
+#[tauri::command]
+async fn set_fiat(currency: String, w: State<'_, Shared>) -> Result<View, Failure> {
+    let w = w.inner().clone();
+    blocking(move || w.set_fiat(&currency)).await?
+}
+
+#[tauri::command]
+async fn software_key_seen(w: State<'_, Shared>) -> Result<View, Failure> {
+    Ok(w.software_key_seen())
+}
+
+/// Saves the active wallet's history as CSV where the user picks. False
+/// when they cancel.
+#[tauri::command]
+async fn export_history(app: AppHandle, w: State<'_, Shared>) -> Result<bool, Failure> {
+    let w = w.inner().clone();
+    let saved = blocking(move || {
+        let (name, csv) = w.history_csv()?;
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_file_name(name)
+            .add_filter("CSV", &["csv"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = path.into_path().map_err(|e| failure(e.to_string()))?;
+        std::fs::write(&path, csv).map_err(|e| failure(e.to_string()))?;
+        journal::info(&format!("exported the history to {}", path.display()));
+        Ok(true)
+    })
+    .await?;
+    logged("exporting the history", saved)
+}
+
 /// Opens the folder with the log, for sending it to support.
 #[tauri::command]
 async fn open_logs(app: AppHandle) -> Result<(), Failure> {
@@ -570,6 +624,10 @@ fn main() {
             copy_address,
             open_link,
             open_logs,
+            receive_qr,
+            set_fiat,
+            software_key_seen,
+            export_history,
             about_info,
         ])
         .run(tauri::generate_context!())

@@ -84,7 +84,7 @@ fn now() -> u64 {
 }
 
 /// Unix seconds as UTC, like 2026-10-03T13:57:02Z.
-fn timestamp(secs: u64) -> String {
+pub fn timestamp(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rest = secs % 86_400;
     // Howard Hinnant's days-to-civil algorithm.
