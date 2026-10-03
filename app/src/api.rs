@@ -127,6 +127,74 @@ impl std::fmt::Display for ApiError {
     }
 }
 
+/// What the wallet asks of the bridge's server, and of mempool.space: a
+/// trait, so tests can stand in for the network.
+pub trait Api: Send + Sync {
+    fn base(&self) -> &str;
+    fn info(&self) -> Result<BridgeInfo, ApiError>;
+    fn status(&self) -> Result<BridgeStatus, ApiError>;
+    fn address(&self, chain: Chain, address: &str) -> Result<AddressView, ApiError>;
+    fn watch_bitcoin(&self, address: &str) -> Result<(), ApiError>;
+    fn raw_tx(&self, chain: Chain, txid: &str) -> Result<String, ApiError>;
+    fn broadcast(&self, chain: Chain, hex: &str) -> Result<String, ApiError>;
+    fn deposit_address(&self, address: &str) -> Result<String, ApiError>;
+    fn deposits(&self, address: &str) -> Result<Vec<DepositEntry>, ApiError>;
+    fn peg_out(&self, txid: &str) -> Result<PegOutStatus, ApiError>;
+    fn events(&self) -> Result<Box<dyn BufRead + Send>, ApiError>;
+    fn recommended_fees(&self) -> Result<FeeEstimates, ApiError>;
+    fn prices(&self) -> Result<Prices, ApiError>;
+    fn bitcoin_address_txs(&self, address: &str) -> Result<Vec<ListedTx>, ApiError>;
+    fn bitcoin_balance(&self, address: &str) -> Result<u64, ApiError>;
+}
+
+impl Api for Bridge {
+    fn base(&self) -> &str {
+        Bridge::base(self)
+    }
+    fn info(&self) -> Result<BridgeInfo, ApiError> {
+        Bridge::info(self)
+    }
+    fn status(&self) -> Result<BridgeStatus, ApiError> {
+        Bridge::status(self)
+    }
+    fn address(&self, chain: Chain, address: &str) -> Result<AddressView, ApiError> {
+        Bridge::address(self, chain, address)
+    }
+    fn watch_bitcoin(&self, address: &str) -> Result<(), ApiError> {
+        Bridge::watch_bitcoin(self, address)
+    }
+    fn raw_tx(&self, chain: Chain, txid: &str) -> Result<String, ApiError> {
+        Bridge::raw_tx(self, chain, txid)
+    }
+    fn broadcast(&self, chain: Chain, hex: &str) -> Result<String, ApiError> {
+        Bridge::broadcast(self, chain, hex)
+    }
+    fn deposit_address(&self, address: &str) -> Result<String, ApiError> {
+        Bridge::deposit_address(self, address)
+    }
+    fn deposits(&self, address: &str) -> Result<Vec<DepositEntry>, ApiError> {
+        Bridge::deposits(self, address)
+    }
+    fn peg_out(&self, txid: &str) -> Result<PegOutStatus, ApiError> {
+        Bridge::peg_out(self, txid)
+    }
+    fn events(&self) -> Result<Box<dyn BufRead + Send>, ApiError> {
+        Ok(Box::new(Bridge::events(self)?))
+    }
+    fn recommended_fees(&self) -> Result<FeeEstimates, ApiError> {
+        Bridge::recommended_fees(self)
+    }
+    fn prices(&self) -> Result<Prices, ApiError> {
+        Bridge::prices(self)
+    }
+    fn bitcoin_address_txs(&self, address: &str) -> Result<Vec<ListedTx>, ApiError> {
+        Bridge::bitcoin_address_txs(self, address)
+    }
+    fn bitcoin_balance(&self, address: &str) -> Result<u64, ApiError> {
+        Bridge::bitcoin_balance(self, address)
+    }
+}
+
 pub struct Bridge {
     base: String,
     agent: ureq::Agent,
@@ -290,6 +358,30 @@ impl Bridge {
                 .call()
                 .map_err(network)?,
         )
+    }
+
+    /// An address's confirmed balance on Bitcoin according to mempool.space,
+    /// in satoshis: a second opinion on what the bridge says.
+    pub fn bitcoin_balance(&self, address: &str) -> Result<u64, ApiError> {
+        #[derive(Deserialize)]
+        struct Stats {
+            funded_txo_sum: u64,
+            spent_txo_sum: u64,
+        }
+        #[derive(Deserialize)]
+        struct Address {
+            chain_stats: Stats,
+        }
+        check_address(address)?;
+        let a: Address = decode(
+            self.agent
+                .get(format!("https://mempool.space/api/address/{address}"))
+                .call()
+                .map_err(network)?,
+        )?;
+        Ok(a.chain_stats
+            .funded_txo_sum
+            .saturating_sub(a.chain_stats.spent_txo_sum))
     }
 
     /// BTC's price from mempool.space, to show values in a currency. Nothing

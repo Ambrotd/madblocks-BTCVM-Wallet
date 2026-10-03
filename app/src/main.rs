@@ -13,6 +13,8 @@ mod api;
 mod clip;
 mod journal;
 mod store;
+#[cfg(test)]
+mod tests;
 mod wallet;
 
 use btcvm_wallet_core::about;
@@ -504,6 +506,12 @@ async fn open_link(
 }
 
 #[tauri::command]
+async fn set_check_balances(on: bool, w: State<'_, Shared>) -> Result<View, Failure> {
+    let w = w.inner().clone();
+    blocking(move || w.set_check_balances(on)).await
+}
+
+#[tauri::command]
 async fn check_rotation(w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
     blocking(move || w.check_rotation_now()).await
@@ -686,6 +694,7 @@ fn main() {
             open_link,
             open_logs,
             receive_qr,
+            set_check_balances,
             check_rotation,
             rotation_seen,
             verify_backup,

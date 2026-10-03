@@ -182,6 +182,34 @@ pub trait Gate {
     }
 }
 
+/// A gate shared between vaults (an app's wallets) is still that gate.
+impl<T: Gate + ?Sized> Gate for std::sync::Arc<T> {
+    fn kind(&self) -> &'static str {
+        (**self).kind()
+    }
+
+    fn create(&self, name: &str) -> Result<Vec<u8>, VaultError> {
+        (**self).create(name)
+    }
+
+    fn sign(
+        &self,
+        name: &str,
+        challenge: &[u8],
+        public_key: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, VaultError> {
+        (**self).sign(name, challenge, public_key)
+    }
+
+    fn delete(&self, name: &str) -> Result<(), VaultError> {
+        (**self).delete(name)
+    }
+
+    fn attested(&self, name: &str) -> Result<Option<bool>, VaultError> {
+        (**self).attested(name)
+    }
+}
+
 /// The vault in `dir`, unlocked through `gate`.
 pub struct Vault<G: Gate> {
     dir: PathBuf,

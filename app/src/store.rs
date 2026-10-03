@@ -36,6 +36,9 @@ pub struct Settings {
     pub rotations: Vec<RotationProof>,
     /// The new peg of the last rotation the user has seen announced.
     pub rotation_seen: Option<String>,
+    /// Check the active wallet's Bitcoin balance with mempool.space too,
+    /// which then learns the address. Off unless the user turns it on.
+    pub check_balances: bool,
 
     // Single-wallet versions kept these for their only wallet. They are read
     // once, moved into its record, and never written again.

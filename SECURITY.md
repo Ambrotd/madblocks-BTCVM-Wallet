@@ -96,8 +96,12 @@ can already move the locked BTC.
 - `scripts/secretscan.sh` refuses WIFs, extended private keys and PEM private keys in any commit. It runs
   as the pre-commit and pre-push hooks and in CI. The test vectors' keys are public (SHA-256 of labels in
   BTCVM's, the keys BIPs 32, 39 and 84 publish in theirs) and are allowed by path.
-- No telemetry. The app's requests go to the bridge you choose and, for two things it doesn't serve, to
-  mempool.space: Bitcoin fee estimates, every ten minutes, which say nothing about you; and an old
-  transaction a pruned node no longer has (from blockstream.info if mempool.space doesn't answer), which
-  tells that service the transaction's id. Every request carries a User-Agent naming the wallet and its
-  version and nothing about you.
+- No telemetry. The app's requests go to the bridge you choose and, for what it doesn't serve, to
+  mempool.space: Bitcoin fee estimates and BTC's price, every ten minutes, which say nothing about you (the
+  price only if values are shown); an old transaction a pruned node no longer has (from blockstream.info
+  if mempool.space doesn't answer), which tells that service the transaction's id; the old peg's latest
+  transactions while a signer change waits to be checked; and, only if you turn it on in Settings, your
+  Bitcoin balance, as a second opinion on the bridge's, which tells mempool.space your address. Every
+  request carries a User-Agent naming the wallet and its version and nothing about you.
+- A local log (`logs\wallet.log`, two files of at most 1 MB) records failures, payments sent and changes
+  of the bridge's state, for support. It never holds a key or a recovery phrase.

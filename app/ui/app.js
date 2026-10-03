@@ -99,6 +99,9 @@ const STRINGS = {
     softwareKeyTitle: 'Windows no puede certificar que la clave de esta cartera esté en un chip TPM',
     softwareKeyText: 'Tu clave sigue cifrada y cada pago pide Windows Hello, pero la llave que la abre podría estar guardada por software en lugar de en el chip de seguridad. Pasa en equipos sin TPM o con uno antiguo. Un malware con permisos de administrador lo tendría más fácil: para cantidades grandes, usa un equipo con TPM 2.0.',
     understood: 'Entendido',
+    checkBalances: 'Comprobar también mi saldo de Bitcoin con mempool.space (mempool.space conocerá tu dirección)',
+    disagreeTitle: 'El puente y mempool.space no coinciden en tu saldo de Bitcoin',
+    disagreeText: 'El puente dice {bridge} BTC confirmados y mempool.space {other} BTC. Puede ser un bloque que acaba de llegar; si persiste, el puente podría estar mostrando datos falsos. Tus fondos no corren riesgo por ello: cada pago se comprueba antes de firmarlo.',
     checkNow: 'Buscar la prueba ahora',
     rotationTitle: 'Firmantes del puente actualizados',
     rotationText: 'Los firmantes anteriores firmaron el traslado de los fondos del peg {from} al nuevo {to}, y la wallet ha comprobado sus firmas. Los depósitos y las retiradas vuelven a funcionar con el nuevo conjunto.',
@@ -206,6 +209,9 @@ const STRINGS = {
     softwareKeyTitle: 'Windows can\'t certify that this wallet\'s key is in a TPM chip',
     softwareKeyText: 'Your key is still encrypted and every payment asks for Windows Hello, but the key that opens it may be kept in software rather than in the security chip. That happens on PCs without a TPM or with an old one. Malware with administrator rights would have an easier time: for large amounts, use a PC with TPM 2.0.',
     understood: 'Got it',
+    checkBalances: 'Also check my Bitcoin balance with mempool.space (mempool.space will learn your address)',
+    disagreeTitle: 'The bridge and mempool.space disagree on your Bitcoin balance',
+    disagreeText: 'The bridge says {bridge} BTC confirmed and mempool.space {other} BTC. It may be a block that just arrived; if it lasts, the bridge may be showing false data. Your funds aren\'t at risk from it: every payment is checked before it is signed.',
     checkNow: 'Look for the proof now',
     rotationTitle: 'The bridge\'s signers were updated',
     rotationText: 'The previous signers signed the move of the funds from the peg {from} to the new {to}, and the wallet checked their signatures. Deposits and withdrawals work again with the new set.',
@@ -531,6 +537,9 @@ function renderBanners() {
       h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => invoke('open_logs').catch(showError) }, t('openLogs')))));
   }
   if (view.connectionError) out.push(banner(false, t('bannerOffline'), h('p', {}, tr(view.connectionError))));
+  if (view.bitcoinDisagrees && view.bitcoin) {
+    out.push(banner(false, t('disagreeTitle'), h('p', {}, t('disagreeText', { bridge: view.bitcoin.confirmed, other: view.bitcoinDisagrees }))));
+  }
   if (b.paused) out.push(banner(false, t('bannerPaused')));
   if (b.solvent === false) out.push(banner(true, t('bannerInsolvent')));
   if (view.hasWallet && view.softwareKeyWarning) {
@@ -1129,6 +1138,9 @@ function openSettings() {
   language.addEventListener('change', () => act(() => invoke('set_language', { language: language.value })).then(openSettings));
   const currency = h('select', { id: 'fiat' }, h('option', { value: 'EUR' }, 'EUR (€)'), h('option', { value: 'USD' }, 'USD ($)'), h('option', { value: 'none' }, t('currencyNone')));
   currency.value = view.fiatChoice || 'none';
+  const checkBalances = h('input', { type: 'checkbox', id: 'check-balances' });
+  checkBalances.checked = !!view.checkBalances;
+  checkBalances.addEventListener('change', () => act(() => invoke('set_check_balances', { on: checkBalances.checked })).then(openSettings));
   currency.addEventListener('change', () => act(() => invoke('set_fiat', { currency: currency.value })).then(openSettings));
   openModal(
     h('h2', {}, t('settings')),
@@ -1141,6 +1153,7 @@ function openSettings() {
       h('button', { type: 'button', onclick: () => act(() => invoke('backup')) }, t('backupKey')),
       h('button', { class: 'danger', type: 'button', onclick: () => act(() => invoke('remove_wallet')) }, t('removeWallet'))) : null,
     h('label', { for: 'fiat' }, t('currency')), currency,
+    h('label', { class: 'check' }, checkBalances, t('checkBalances')),
     h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => invoke('open_logs').catch(showError) }, t('openLogs'))),
     h('h3', {}, t('security')),
     view.hasWallet ? h('p', { class: 'small' }, `${t('tpmStatus')}: `, view.hardware === true ? t('tpmCertified') : view.hardware === false ? t('tpmNotCertified') : t('tpmUnknown')) : null,

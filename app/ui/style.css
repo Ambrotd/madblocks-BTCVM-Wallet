@@ -239,3 +239,5 @@ body.busy { cursor: progress; }
 .qr-wrap { display: flex; justify-content: center; margin: 8px 0 12px; }
 canvas.qr { width: 222px; height: 222px; image-rendering: pixelated; border-radius: 10px; }
 .tag.warn { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line); }
+label.check { display: flex; gap: 8px; align-items: flex-start; color: var(--ink); font-size: 13px; }
+label.check input { width: auto; margin-top: 2px; }

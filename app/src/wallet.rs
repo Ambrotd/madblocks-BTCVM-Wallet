@@ -8,7 +8,8 @@
 //! signed transaction back, and records the payment before it is sent.
 
 use crate::api::{
-    AddressView, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry, FeeEstimates, Prices,
+    AddressView, Api, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry, FeeEstimates,
+    Prices,
 };
 use crate::journal;
 use crate::store::{self, FIRST, Outgoing, RotationProof, Settings, WalletRecord, Withdrawal};
@@ -25,7 +26,7 @@ use btcvm_wallet_core::{
     VerifiedBridge, about, decode_address, format_btc, max_payment, parse_btc, plan_bump,
     plan_deposit, plan_send, plan_withdrawal, sign_plan,
 };
-use btcvm_wallet_vault::{Secret, Vault, VaultError, WindowsHello};
+use btcvm_wallet_vault::{Gate, Secret, Vault, VaultError, WindowsHello};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -114,6 +115,9 @@ struct Snapshot {
     btcvm: Option<AddressView>,
     bitcoin: Option<AddressView>,
     bitcoin_note: Option<String>,
+    /// mempool.space's confirmed balance for the active wallet, sats, when
+    /// asked and it differs from the bridge's.
+    second_opinion: Option<u64>,
     deposits: Vec<DepositEntry>,
     /// Every wallet's balances, by id: Bitcoin, then BTCVM.
     balances: HashMap<String, (Option<Balance>, Option<Balance>)>,
@@ -151,10 +155,21 @@ struct Pending {
     replaces: Option<String>,
 }
 
+/// What unlocks the wallets' vaults: Windows Hello, or in tests a stand-in.
+pub type SharedGate = Arc<dyn Gate + Send + Sync>;
+
+/// Makes the API for a bridge's address: the network, or in tests a
+/// stand-in.
+pub type Connect = Box<dyn Fn(&str) -> Arc<dyn Api> + Send + Sync>;
+
 pub struct Wallet {
     dir: PathBuf,
     settings: Mutex<Settings>,
-    bridge: Mutex<Arc<Bridge>>,
+    bridge: Mutex<Arc<dyn Api>>,
+    connect: Connect,
+    gate: SharedGate,
+    /// The signer set built into the wallet, where trust starts.
+    built_in: Pinned,
     snapshot: Mutex<Snapshot>,
     pending: Mutex<Option<Pending>>,
     refreshing: Mutex<()>,
@@ -291,6 +306,11 @@ pub struct View {
     pub software_key_warning: bool,
     /// The positions to type back from the active wallet's backup.
     pub backup_check: Option<BackupCheckView>,
+    /// Whether the Bitcoin balance is checked with mempool.space too.
+    pub check_balances: bool,
+    /// mempool.space's confirmed Bitcoin balance, BTC, when it differs from
+    /// the bridge's.
+    pub bitcoin_disagrees: Option<String>,
     pub updated: u64,
 }
 
@@ -389,7 +409,7 @@ pub struct FeeOptions {
 }
 
 /// A payment for review: everything it does, in plain terms.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Review {
     pub id: u64,
@@ -420,7 +440,7 @@ pub struct Review {
     pub previous_fee: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputRow {
     pub value: String,
@@ -430,7 +450,7 @@ pub struct OutputRow {
     pub withdrawal_to: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Sent {
     pub txid: String,
     pub chain: &'static str,
@@ -479,8 +499,8 @@ fn balance(v: Option<&AddressView>) -> Option<Balance> {
 /// The signer set to trust: the one built into the wallet, followed through
 /// each stored rotation that still checks out. A proof that doesn't (edited,
 /// or for another lineage) stops the walk there.
-fn replay(rotations: &[RotationProof]) -> Signers {
-    let mut current = Pinned::mainnet().signers;
+fn replay(built_in: &Signers, rotations: &[RotationProof]) -> Signers {
+    let mut current = built_in.clone();
     for p in rotations {
         let prev: HashMap<String, String> = p.prev.clone().into_iter().collect();
         let checked = p.from == current
@@ -553,6 +573,24 @@ fn wallet_name(name: &str) -> Outcome<String> {
 impl Wallet {
     pub fn open(language: &str) -> Result<Wallet, String> {
         let dir = btcvm_wallet_vault::default_dir().map_err(|e| e.to_string())?;
+        Ok(Wallet::open_with(
+            dir,
+            language,
+            Box::new(|url| Arc::new(Bridge::new(url))),
+            Arc::new(WindowsHello),
+            Pinned::mainnet(),
+        ))
+    }
+
+    /// The wallets kept in `dir`, reaching servers through `connect`, their
+    /// vaults unlocked through `gate`, trusting `built_in` signers first.
+    pub fn open_with(
+        dir: PathBuf,
+        language: &str,
+        connect: Connect,
+        gate: SharedGate,
+        built_in: Pinned,
+    ) -> Wallet {
         let mut settings = store::load(&dir);
         // The book is checked again each time it's read.
         settings.address_book = book::parse(&settings.address_book, &MAINNET);
@@ -561,11 +599,14 @@ impl Wallet {
             .clone()
             .unwrap_or_else(|| DEFAULT_SERVER.into());
         let language = settings.language.clone().unwrap_or_else(|| language.into());
-        let trusted = replay(&settings.rotations);
+        let trusted = replay(&built_in.signers, &settings.rotations);
         let wallet = Wallet {
             dir,
             settings: Mutex::new(settings),
-            bridge: Mutex::new(Arc::new(Bridge::new(&server))),
+            bridge: Mutex::new(connect(&server)),
+            connect,
+            gate,
+            built_in,
             snapshot: Mutex::new(Snapshot::default()),
             pending: Mutex::new(None),
             refreshing: Mutex::new(()),
@@ -583,7 +624,7 @@ impl Wallet {
         // Saves a single-wallet install in the new form at once.
         let settings = wallet.settings.guard().clone();
         wallet.save(&settings);
-        Ok(wallet)
+        wallet
     }
 
     pub fn language(&self) -> String {
@@ -603,11 +644,11 @@ impl Wallet {
     }
 
     /// The bridge's stream of new blocks.
-    pub fn events(&self) -> Result<impl std::io::BufRead + use<>, ApiError> {
+    pub fn events(&self) -> Result<Box<dyn std::io::BufRead + Send>, ApiError> {
         self.bridge().events()
     }
 
-    fn bridge(&self) -> Arc<Bridge> {
+    fn bridge(&self) -> Arc<dyn Api> {
         self.bridge.guard().clone()
     }
 
@@ -631,8 +672,8 @@ impl Wallet {
         self.settings.guard().active.clone()
     }
 
-    fn vault(&self, id: &str) -> Vault<WindowsHello> {
-        Vault::new(store::vault_dir(&self.dir, id), WindowsHello)
+    fn vault(&self, id: &str) -> Vault<SharedGate> {
+        Vault::new(store::vault_dir(&self.dir, id), self.gate.clone())
     }
 
     /// A wallet's address, from its vault file. Shown only; the key is
@@ -805,6 +846,12 @@ impl Wallet {
                 None
             },
             internal_error: journal::last_panic(),
+            check_balances: settings.check_balances,
+            bitcoin_disagrees: if fresh {
+                snap.second_opinion.map(format_btc)
+            } else {
+                None
+            },
             fiat_choice: fiat_choice.into(),
             fiat,
             hardware: record.hardware,
@@ -910,7 +957,7 @@ impl Wallet {
     /// until the address is registered, which happens here the first time.
     fn fetch(
         &self,
-        api: &Bridge,
+        api: &dyn Api,
         info: &BridgeInfo,
         address: &str,
     ) -> (Option<AddressView>, Option<AddressView>, Option<String>) {
@@ -953,7 +1000,7 @@ impl Wallet {
         let change = bridge.as_ref().and_then(|b| b.signer_change.clone());
         if let Some(change) = change {
             let due = now().saturating_sub(*self.rotation_checked.guard()) >= 600;
-            if due && self.follow_rotation(&api, &change) {
+            if due && self.follow_rotation(&*api, &change) {
                 (bridge, bridge_error) = match peg::verify(&info, &self.pinned()) {
                     Ok(b) => (Some(b), None),
                     Err(e) => (None, Some(Failure::from(e))),
@@ -978,16 +1025,17 @@ impl Wallet {
             let Some(address) = self.address_of(&id) else {
                 continue;
             };
-            let (bitcoin, btcvm, note) = self.fetch(&api, &info, &address);
+            let (bitcoin, btcvm, note) = self.fetch(&*api, &info, &address);
             snap.balances.insert(
                 id.clone(),
                 (balance(bitcoin.as_ref()), balance(btcvm.as_ref())),
             );
             if Some(&id) == active.as_ref() {
                 snap.deposits = api.deposits(&address).unwrap_or_default();
-                self.follow_withdrawals(&api, &id);
+                self.follow_withdrawals(&*api, &id);
                 self.settle(&id, Chain::Btcvm, btcvm.as_ref());
                 self.settle(&id, Chain::Bitcoin, bitcoin.as_ref());
+                snap.second_opinion = self.second_opinion(&*api, &address, bitcoin.as_ref());
                 snap.btcvm = btcvm;
                 snap.bitcoin = bitcoin;
                 snap.bitcoin_note = note;
@@ -1130,8 +1178,42 @@ impl Wallet {
         }
     }
 
+    /// mempool.space's confirmed Bitcoin balance for `address`, when the user
+    /// asked for a second opinion and it differs from the bridge's `view`.
+    fn second_opinion(
+        &self,
+        api: &dyn Api,
+        address: &str,
+        view: Option<&AddressView>,
+    ) -> Option<u64> {
+        if !self.settings.guard().check_balances {
+            return None;
+        }
+        let bridge: u64 = view?
+            .utxos
+            .iter()
+            .filter(|u| u.confirmations > 0)
+            .filter_map(|u| u.value.parse::<u64>().ok())
+            .sum();
+        let other = api.bitcoin_balance(address).ok()?;
+        if other != bridge {
+            journal::warn(&format!(
+                "the bridge says {} BTC on Bitcoin and mempool.space {} BTC",
+                format_btc(bridge),
+                format_btc(other)
+            ));
+        }
+        (other != bridge).then_some(other)
+    }
+
+    pub fn set_check_balances(&self, on: bool) -> View {
+        self.update(|s| s.check_balances = on);
+        self.refresh();
+        self.view()
+    }
+
     /// Checks each withdrawal of wallet `id` not yet confirmed on Bitcoin.
-    fn follow_withdrawals(&self, api: &Bridge, id: &str) {
+    fn follow_withdrawals(&self, api: &dyn Api, id: &str) {
         let open: Vec<String> = self
             .record(id)
             .map(|r| r.withdrawals)
@@ -1189,7 +1271,7 @@ impl Wallet {
     fn pinned(&self) -> Pinned {
         Pinned {
             signers: self.trusted.guard().clone(),
-            ..Pinned::mainnet()
+            ..self.built_in.clone()
         }
     }
 
@@ -1197,7 +1279,7 @@ impl Wallet {
     /// set the bridge reports, checks it, and follows it: on BTCVM, where
     /// the reserve moves first, then on Bitcoin. Up to three rotations are
     /// followed, for a wallet that missed some. True when it followed.
-    fn follow_rotation(&self, api: &Bridge, change: &SignerChange) -> bool {
+    fn follow_rotation(&self, api: &dyn Api, change: &SignerChange) -> bool {
         *self.rotation_checked.guard() = now();
         let mut from = change.trusted.clone();
         let mut proofs = Vec::new();
@@ -1233,7 +1315,7 @@ impl Wallet {
 
     /// A checked move from `from`: to `target` if one is found, or else to
     /// the next set in between, whose keys a later spend reveals.
-    fn find_move(&self, api: &Bridge, from: &Signers, target: &Signers) -> Option<RotationProof> {
+    fn find_move(&self, api: &dyn Api, from: &Signers, target: &Signers) -> Option<RotationProof> {
         let peg = from.peg().ok()?.address(&MAINNET);
         let target_hash = sha256(&target.witness_script().ok()?);
         for (chain, txid) in self.move_candidates(api, &peg) {
@@ -1264,7 +1346,7 @@ impl Wallet {
     /// Transactions that may be moves from the peg `address`: its latest
     /// spends on BTCVM, then its latest transactions on Bitcoin with a BVMM
     /// tag.
-    fn move_candidates(&self, api: &Bridge, address: &str) -> Vec<(Chain, String)> {
+    fn move_candidates(&self, api: &dyn Api, address: &str) -> Vec<(Chain, String)> {
         let mut out = Vec::new();
         if let Ok(view) = api.address(Chain::Btcvm, address) {
             out.extend(
@@ -1288,7 +1370,7 @@ impl Wallet {
 
     /// The set whose peg has the P2WSH `program`, from a spend of it, whose
     /// witness reveals its script.
-    fn revealed_set(&self, api: &Bridge, chain: Chain, program: &[u8; 32]) -> Option<Signers> {
+    fn revealed_set(&self, api: &dyn Api, chain: Chain, program: &[u8; 32]) -> Option<Signers> {
         let address = Destination::new(AddressKind::P2wsh, program)
             .ok()?
             .address(&MAINNET);
@@ -1320,7 +1402,7 @@ impl Wallet {
     /// made each of its first few coins in turn.
     fn check_move(
         &self,
-        api: &Bridge,
+        api: &dyn Api,
         chain: Chain,
         from: &Signers,
         to: &Signers,
@@ -2353,7 +2435,7 @@ impl Wallet {
         if !valid {
             return fail("the bridge's address must be https://, like https://metalbtc.com");
         }
-        *self.bridge.guard() = Arc::new(Bridge::new(url));
+        *self.bridge.guard() = (self.connect)(url);
         *self.snapshot.guard() = Snapshot::default();
         *self.pending.guard() = None;
         self.update(|s| s.server = (url != DEFAULT_SERVER).then(|| url.to_string()));
@@ -2471,8 +2553,8 @@ mod tests {
             prev: Default::default(),
             verified: 0,
         };
-        assert_eq!(replay(&[]), pinned);
-        assert_eq!(replay(&[forged]), pinned);
+        assert_eq!(replay(&pinned, &[]), pinned);
+        assert_eq!(replay(&pinned, &[forged]), pinned);
     }
 
     #[test]
