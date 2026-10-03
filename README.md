@@ -116,6 +116,10 @@ cargo build --release -p madblocks-btcvm-wallet   # the standalone exe, in targe
 
 [RELEASING.md](RELEASING.md) covers the update key, signing and publishing a release.
 
+`python tools/ui-preview/serve.py` serves the window in a browser with a stand-in for its Rust side, in any
+state (`?state=wallet`, `welcome`, `signer-change`… listed in `tools/ui-preview/mock.js`), to work on the
+interface or audit it. Nothing of it goes into the exe.
+
 ## Support madblocks
 
 The wallet is free. If it's useful to you, support the people behind it:
