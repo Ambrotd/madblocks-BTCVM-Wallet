@@ -274,6 +274,17 @@ async fn prepare_withdrawal(
 }
 
 #[tauri::command]
+async fn max_amount(
+    action: String,
+    chain: String,
+    to: String,
+    w: State<'_, Shared>,
+) -> Result<String, Failure> {
+    let w = w.inner().clone();
+    blocking(move || w.max_amount(&action, &chain, &to)).await
+}
+
+#[tauri::command]
 async fn confirm(id: u64, app: AppHandle, w: State<'_, Shared>) -> Result<Sent, Failure> {
     let w = w.inner().clone();
     blocking(move || {
@@ -405,6 +416,7 @@ fn main() {
             prepare_send,
             prepare_deposit,
             prepare_withdrawal,
+            max_amount,
             confirm,
             cancel,
             set_server,

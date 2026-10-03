@@ -22,6 +22,7 @@ const STRINGS = {
     unavailable: 'Este puente no sirve saldos de Bitcoin.',
     send: 'Enviar', deposit: 'Pasar a BTCVM', withdraw: 'Retirar a Bitcoin',
     network: 'Red', to: 'Destino', amount: 'Cantidad (BTC)', review: 'Revisar',
+    max: 'Máx.', maxHint: 'Todo lo que puedes mover ahora, descontada la comisión (y sin pasar del máximo del puente en un depósito)',
     sendHint: 'Elige la red cada vez: la misma dirección existe en las dos, pero las monedas no.',
     depositHint: 'Paga desde tu saldo de Bitcoin a tu dirección de depósito personal, calculada aquí con las claves fijadas de los firmantes y comprobada con el puente. BTCVM la acredita tras las confirmaciones que pide el puente (menos para cantidades pequeñas).',
     limits: 'Mínimo {min} BTC', maxCap: 'máximo {max} BTC (límite de la alfa)', vmFeeNote: 'el puente se queda {fee} BTC',
@@ -81,6 +82,7 @@ const STRINGS = {
     unavailable: 'This bridge doesn\'t serve Bitcoin balances.',
     send: 'Send', deposit: 'Move to BTCVM', withdraw: 'Withdraw to Bitcoin',
     network: 'Network', to: 'To', amount: 'Amount (BTC)', review: 'Review',
+    max: 'Max', maxHint: 'All you can move now, after the fee (and no more than the bridge accepts, for a deposit)',
     sendHint: 'Choose the network each time: the same address exists on both, the coins don\'t.',
     depositHint: 'Pays from your Bitcoin balance to your personal deposit address, computed here from the signers\' pinned keys and checked against the bridge. BTCVM credits it after the confirmations the bridge asks for (fewer for small amounts).',
     limits: 'At least {min} BTC', maxCap: 'at most {max} BTC (alpha cap)', vmFeeNote: 'the bridge keeps {fee} BTC',
@@ -270,6 +272,24 @@ function field(id, labelKey, attrs = {}) {
   return [h('label', { for: id }, t(labelKey)), h('input', { id, autocomplete: 'off', spellcheck: 'false', ...attrs })];
 }
 
+/** An amount, with a button that fills in the most the action can move. */
+function amountField(id, placeholder, action) {
+  return [
+    h('label', { for: id }, t('amount')),
+    h('div', { class: 'amount-row' },
+      h('input', { id, autocomplete: 'off', spellcheck: 'false', inputmode: 'decimal', placeholder }),
+      h('button', { type: 'button', title: t('maxHint'), onclick: () => fillMax(id, action) }, t('max'))),
+  ];
+}
+
+async function fillMax(id, action) {
+  const value = (field) => ($(field) ? $(field).value : '');
+  const chain = action === 'send' ? value('send-chain') : '';
+  const to = action === 'send' ? value('send-to') : action === 'withdraw' ? value('withdraw-to') : '';
+  const max = await act(() => invoke('max_amount', { action, chain, to }));
+  if (max) $(id).value = max;
+}
+
 function renderActions() {
   const tabs = h('div', { class: 'tabs' }, ['send', 'deposit', 'withdraw'].map((k) =>
     h('button', { type: 'button', class: tab === k ? 'on' : '', onclick: () => { tab = k; rebuildActions(); } }, t(k))));
@@ -279,12 +299,12 @@ function renderActions() {
       h('label', { for: 'send-chain' }, t('network')),
       h('select', { id: 'send-chain' }, h('option', { value: 'btcvm' }, 'BTCVM'), h('option', { value: 'bitcoin' }, 'Bitcoin')),
       ...field('send-to', 'to', { placeholder: 'bc1q…' }),
-      ...field('send-amount', 'amount', { inputmode: 'decimal', placeholder: '0.0001' }),
+      ...amountField('send-amount', '0.0001', 'send'),
       h('p', { class: 'small muted' }, t('sendHint')),
       h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', onclick: () => prepare('send') }, t('review'))));
   } else if (tab === 'deposit') {
     body = h('div', {},
-      ...field('deposit-amount', 'amount', { inputmode: 'decimal', placeholder: '0.0005' }),
+      ...amountField('deposit-amount', '0.0005', 'deposit'),
       h('p', { class: 'small muted', id: 'deposit-hint' }),
       h('p', { class: 'small', id: 'deposit-paused' }),
       h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', id: 'deposit-go', onclick: () => prepare('deposit') }, t('review'))));
@@ -292,7 +312,7 @@ function renderActions() {
     body = h('div', {},
       ...field('withdraw-to', 'btcAddress', { placeholder: 'bc1q…' }),
       h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => { if (view.address) $('withdraw-to').value = view.address; } }, t('useMine'))),
-      ...field('withdraw-amount', 'amount', { inputmode: 'decimal', placeholder: '0.0002' }),
+      ...amountField('withdraw-amount', '0.0002', 'withdraw'),
       h('p', { class: 'small muted', id: 'withdraw-hint' }),
       h('p', { class: 'small', id: 'withdraw-paused' }),
       h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', id: 'withdraw-go', onclick: () => prepare('withdraw') }, t('review'))));

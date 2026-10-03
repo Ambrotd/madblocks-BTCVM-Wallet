@@ -197,3 +197,5 @@ td.num { text-align: right; white-space: nowrap; }
 .foot { margin-top: 18px; font-size: 12px; color: var(--muted); }
 
 body.busy { cursor: progress; }
+.amount-row { display: flex; gap: 8px; }
+.amount-row input { flex: 1; }

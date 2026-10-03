@@ -151,34 +151,14 @@ pub fn plan_payment(
         ));
     }
     let from_script = from.pk_script();
-    let from_hex = hex::encode(&from_script);
-    let mut spendable: Vec<(u64, &Utxo)> = utxos
-        .iter()
-        .filter(|u| u.confirmations > 0 && u.script == from_hex)
+    let mut spendable: Vec<(u64, &Utxo)> = spendable(utxos, &from_script)
         .map(|u| (u.value.parse().unwrap_or(0), u))
         .collect();
     // Largest first, by the value the server claims, as chain.js does.
     spendable.sort_by_key(|&(value, _)| std::cmp::Reverse(value));
 
-    let mut outputs = vec![TxOut {
-        value: req.amount,
-        script: req.to.pk_script(),
-    }];
-    if let Some(data) = &req.data {
-        outputs.push(TxOut {
-            value: 0,
-            script: [&[0x6a][..], &push_data(data)?].concat(),
-        });
-    }
-    // Sized as if it had change, which it usually will.
-    let sized: Vec<TxOut> = outputs
-        .iter()
-        .cloned()
-        .chain([TxOut {
-            value: 0,
-            script: from_script.clone(),
-        }])
-        .collect();
+    let mut outputs = payment_outputs(req)?;
+    let sized = with_change(&outputs, &from_script);
 
     let mut inputs: Vec<TxIn> = Vec::new();
     let (mut total, mut fee) = (0u64, 0u64);
@@ -188,11 +168,7 @@ pub fn plan_payment(
             .checked_add(input.value)
             .ok_or_else(|| Error::Untrusted("coin values overflow".into()))?;
         inputs.push(input);
-        let size = vsize(inputs.len(), &sized);
-        fee = match req.chain {
-            Chain::Bitcoin => size * req.fee_rate,
-            Chain::Btcvm => vm_fee(size),
-        };
+        fee = fee_for(req, vsize(inputs.len(), &sized));
         if total >= req.amount + fee {
             break;
         }
@@ -234,6 +210,98 @@ pub fn plan_payment(
         from: from.clone(),
         unsigned,
     })
+}
+
+/// The most a payment can send to `req.to` (with `req.data`) on
+/// `req.chain`: every confirmed coin of `from`, checked as `plan_payment`
+/// checks them, less the fee, so nothing is left for change. It is sized as
+/// `plan_payment` sizes a payment, so planning this amount spends every coin.
+/// `req.amount` is ignored.
+pub fn max_payment(
+    from: &Destination,
+    utxos: &[Utxo],
+    raw_txs: &HashMap<String, String>,
+    req: &Request,
+) -> Result<u64> {
+    if from.kind() != Kind::P2wpkh {
+        return invalid("the wallet spends only its own native SegWit coins");
+    }
+    if req.chain == Chain::Bitcoin && !(1..=MAX_FEE_RATE).contains(&req.fee_rate) {
+        return invalid(format!(
+            "a fee rate of {} sat/vB looks wrong; refusing",
+            req.fee_rate
+        ));
+    }
+    let from_script = from.pk_script();
+    let (mut total, mut count) = (0u64, 0usize);
+    for u in spendable(utxos, &from_script) {
+        let input = verified_input(u, raw_txs, &from_script)?;
+        total = total
+            .checked_add(input.value)
+            .ok_or_else(|| Error::Untrusted("coin values overflow".into()))?;
+        count += 1;
+    }
+    let fee = fee_for(
+        req,
+        vsize(count, &with_change(&payment_outputs(req)?, &from_script)),
+    );
+    if fee > MAX_FEE {
+        return invalid(format!(
+            "the fee would be {} BTC; refusing to sign",
+            format_btc(fee)
+        ));
+    }
+    match total.checked_sub(fee) {
+        Some(amount) if amount >= req.chain.dust() => Ok(amount.min(MAX_MONEY)),
+        _ => invalid(format!(
+            "not enough confirmed BTC on {} to cover the fee",
+            req.chain.name()
+        )),
+    }
+}
+
+/// The confirmed coins paying `from_script`, each once, in the server's order.
+fn spendable<'a>(utxos: &'a [Utxo], from_script: &[u8]) -> impl Iterator<Item = &'a Utxo> {
+    let from_hex = hex::encode(from_script);
+    let mut seen = std::collections::HashSet::new();
+    utxos.iter().filter(move |u| {
+        u.confirmations > 0 && u.script == from_hex && seen.insert((u.txid.clone(), u.vout))
+    })
+}
+
+/// A payment's own outputs: what it pays, then any OP_RETURN.
+fn payment_outputs(req: &Request) -> Result<Vec<TxOut>> {
+    let mut outputs = vec![TxOut {
+        value: req.amount,
+        script: req.to.pk_script(),
+    }];
+    if let Some(data) = &req.data {
+        outputs.push(TxOut {
+            value: 0,
+            script: [&[0x6a][..], &push_data(data)?].concat(),
+        });
+    }
+    Ok(outputs)
+}
+
+/// The outputs a payment is sized for: its own, and change, which it
+/// usually has.
+fn with_change(outputs: &[TxOut], from_script: &[u8]) -> Vec<TxOut> {
+    outputs
+        .iter()
+        .cloned()
+        .chain([TxOut {
+            value: 0,
+            script: from_script.to_vec(),
+        }])
+        .collect()
+}
+
+fn fee_for(req: &Request, vsize: u64) -> u64 {
+    match req.chain {
+        Chain::Bitcoin => vsize * req.fee_rate,
+        Chain::Btcvm => vm_fee(vsize),
+    }
 }
 
 /// What a BTCVM transaction of `vsize` vbytes pays: the node's relay

@@ -7,11 +7,12 @@
 
 use crate::api::{AddressView, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry};
 use crate::store::{self, Outgoing, Settings, Withdrawal};
-use btcvm_wallet_core::bridge::{self as peg, CheckSource, Pinned};
+use btcvm_wallet_core::bridge::{self as peg, CheckSource, Pinned, peg_out_data};
 use btcvm_wallet_core::tx::parse_tx;
 use btcvm_wallet_core::{
-    BridgeInfo, Chain, Coins, Destination, Key, MAINNET, Plan, VerifiedBridge, about,
-    decode_address, format_btc, parse_btc, plan_deposit, plan_send, plan_withdrawal, sign_plan,
+    BridgeInfo, Chain, Coins, Destination, Key, Kind as AddressKind, MAINNET, Plan, Request,
+    VerifiedBridge, about, decode_address, format_btc, max_payment, parse_btc, plan_deposit,
+    plan_send, plan_withdrawal, sign_plan,
 };
 use btcvm_wallet_vault::{Vault, VaultError, WindowsHello};
 use serde::Serialize;
@@ -890,6 +891,72 @@ impl Wallet {
         };
         let id = self.keep(kind, plan, to, amount);
         Review { id, ..review }
+    }
+
+    /// The most an action can move now, as BTC for the amount field: all the
+    /// confirmed coins on its chain less the fee, and for a deposit no more
+    /// than the bridge accepts. An address not typed yet is sized as the
+    /// largest standard output, so the amount fits whatever it turns out to be.
+    pub fn max_amount(&self, action: &str, chain: &str, to: &str) -> Outcome<String> {
+        let bridge = self.verified()?;
+        let from = self.own()?;
+        let largest = |kind| Destination::new(kind, &[0u8; 32]).expect("a 32-byte program");
+        let typed = |kind| decode_address(to.trim(), &bridge.net).unwrap_or_else(|_| largest(kind));
+        let paused = || -> Outcome<()> {
+            if bridge.signer_change.is_some() {
+                return Err(btcvm_wallet_core::Error::Untrusted(
+                    btcvm_wallet_core::wallet::PAUSED_BY_SIGNER_CHANGE.into(),
+                )
+                .into());
+            }
+            Ok(())
+        };
+        let (chain, dest, data, floor, cap) = match action {
+            "send" => (parse_chain(chain)?, typed(AddressKind::P2wsh), None, 0, 0),
+            "deposit" => {
+                paused()?;
+                (
+                    Chain::Bitcoin,
+                    bridge.signers.deposit_destination(&from)?,
+                    None,
+                    bridge.min_deposit,
+                    bridge.max_deposit,
+                )
+            }
+            "withdraw" => {
+                paused()?;
+                let tag = peg_out_data(&typed(AddressKind::P2tr));
+                (
+                    Chain::Btcvm,
+                    bridge.peg.clone(),
+                    Some(tag),
+                    bridge.min_peg_out,
+                    0,
+                )
+            }
+            _ => return fail("unknown action"),
+        };
+        let (utxos, raw) = self.coins(chain)?;
+        let max = max_payment(
+            &from,
+            &utxos,
+            &raw,
+            &Request {
+                chain,
+                to: dest,
+                amount: 0,
+                data,
+                fee_rate: bridge.btc_fee_rate,
+            },
+        )?;
+        if max < floor {
+            return fail(format!(
+                "after the fee there are {} BTC, under the minimum of {} BTC",
+                format_btc(max),
+                format_btc(floor)
+            ));
+        }
+        Ok(format_btc(if cap > 0 { max.min(cap) } else { max }))
     }
 
     pub fn cancel(&self, id: u64) {

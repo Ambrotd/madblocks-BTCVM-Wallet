@@ -481,3 +481,44 @@ fn keys_and_amounts_refuse_bad_input() {
         fresh.bytes()
     );
 }
+
+#[test]
+fn max_spends_every_coin_and_leaves_no_change() {
+    let v = vectors();
+    for name in [
+        "one input with change",
+        "several inputs, largest first",
+        "withdrawal with a BVMO tag",
+        "BTCVM payment",
+        "BTCVM withdrawal",
+    ] {
+        let p = payment(&v, name);
+        let key = key_for(&p.from_label);
+        let mut req = p.request();
+        let max = max_payment(&key.destination(), &p.utxos, &p.raw_txs(), &req).unwrap();
+        req.amount = max;
+        let plan = plan_payment(&key.destination(), &p.utxos, &p.raw_txs(), &req).unwrap();
+        let total: u64 = p
+            .utxos
+            .iter()
+            .map(|u| u.value.parse::<u64>().unwrap())
+            .sum();
+        assert_eq!(plan.spends().len(), p.utxos.len(), "{name}: every coin");
+        assert_eq!(
+            plan.outputs().len(),
+            1 + usize::from(req.data.is_some()),
+            "{name}: no change"
+        );
+        assert_eq!(max + plan.fee, total, "{name}");
+        // One satoshi more doesn't fit.
+        req.amount = max + 1;
+        assert!(
+            plan_payment(&key.destination(), &p.utxos, &p.raw_txs(), &req).is_err(),
+            "{name}"
+        );
+    }
+    // Coins that aren't the wallet's give it nothing to send.
+    let p = payment(&v, "one input with change");
+    let other = key_for(&v.keys[1].label);
+    assert!(max_payment(&other.destination(), &p.utxos, &p.raw_txs(), &p.request()).is_err());
+}
