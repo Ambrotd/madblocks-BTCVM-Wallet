@@ -1,0 +1,39 @@
+[package]
+name = "btcvm-wallet-vault"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "The wallet key's vault: encrypted at rest, unlocked by Windows Hello with a TPM-held key."
+authors = ["madblocks <https://madblocks.tech>"]
+license = "MIT"
+publish = false
+
+[dependencies]
+btcvm-wallet-core = { path = "../core" }
+aes-gcm = "0.10.3"
+hkdf = "0.12"
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+zeroize = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+
+[features]
+default = ["windows-hello"]
+# The Windows Hello gate. Needs the MSVC toolchain on Windows; without it,
+# the vault's own logic still builds and tests (--no-default-features).
+windows-hello = ["dep:windows"]
+
+[[example]]
+name = "hello_check"
+required-features = ["windows-hello"]
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", optional = true, features = [
+    "Foundation",
+    "Security_Credentials",
+    "Security_Cryptography",
+    "Security_Cryptography_Core",
+    "Storage_Streams",
+] }

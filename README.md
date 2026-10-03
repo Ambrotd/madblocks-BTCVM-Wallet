@@ -56,7 +56,8 @@ short:
 | Layer | Tech | Role | Status |
 | --- | --- | --- | --- |
 | `core/` | Rust (`btcvm-wallet-core`) | Keys, addresses, deposit addresses, the bridge check, building and signing transactions | Done |
-| `app/` | Tauri 2 (Rust and WebView2) | The Windows app and its Windows Hello vault. The key never reaches the web view. | Next |
+| `vault/` | Rust (`btcvm-wallet-vault`) | The key's vault: AES-256-GCM under a key that only a Windows Hello signature, from a key the TPM holds, produces | Done; to try on real Windows Hello |
+| `app/` | Tauri 2 (Rust and WebView2) | The Windows app. The key never reaches the web view. | Next |
 
 The core must agree byte for byte with BTCVM's web wallet (`chain.js` in
 [MetalBlockchain/btc-vm](https://github.com/MetalBlockchain/btc-vm)). Its tests run against the vectors the
@@ -67,7 +68,10 @@ the tests.
 
 ## Building
 
-Requires Rust 1.85 or later.
+Requires Rust 1.85 or later. On Windows, the Windows Hello gate needs the MSVC toolchain (Visual Studio
+Build Tools with C++). With the GNU toolchain, test the rest with
+`cargo test -p btcvm-wallet-core` and `cargo test -p btcvm-wallet-vault --no-default-features`.
+`cargo run -p btcvm-wallet-vault --example hello_check` tries Windows Hello on this PC (it asks three times).
 
 ```sh
 git config core.hooksPath .githooks   # refuse private keys in commits and pushes
