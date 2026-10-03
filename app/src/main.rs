@@ -419,6 +419,19 @@ async fn prepare_withdrawal(
 }
 
 #[tauri::command]
+async fn prepare_bump(
+    txid: String,
+    fee_rate: u64,
+    w: State<'_, Shared>,
+) -> Result<Review, Failure> {
+    let w = w.inner().clone();
+    logged(
+        "preparing a higher fee",
+        blocking(move || w.prepare_bump(&txid, fee_rate)).await?,
+    )
+}
+
+#[tauri::command]
 async fn max_amount(
     action: String,
     chain: String,
@@ -652,6 +665,7 @@ fn main() {
             prepare_send,
             prepare_deposit,
             prepare_withdrawal,
+            prepare_bump,
             max_amount,
             confirm,
             cancel,

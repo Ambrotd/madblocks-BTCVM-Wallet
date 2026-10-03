@@ -34,7 +34,7 @@ const STRINGS = {
     unconfirmed: 'sin confirmar', confs: '{n} conf.',
     bridge: 'El puente', pegPinned: 'Dirección del peg (fijada en la wallet)', audit: 'Auditoría: {locked} BTC bloqueados para {circ} BTC en circulación',
     solvent: 'cubierto', notSolvent: 'NO cubierto', feeRate: 'Comisión de Bitcoin estimada: {rate} sat/vB',
-    reviewTitle: { send: 'Enviar en {chain}', deposit: 'Pasar a BTCVM', withdraw: 'Retirar a Bitcoin' },
+    reviewTitle: { send: 'Enviar en {chain}', deposit: 'Pasar a BTCVM', withdraw: 'Retirar a Bitcoin', bump: 'Acelerar un pago en Bitcoin' },
     role: { pay: 'Pago a', deposit: 'Tu dirección de depósito (comprobada con los firmantes fijados)', reserve: 'Reserva del puente (fijada en la wallet)', change: 'Cambio: vuelve a ti', tag: 'Etiqueta: el puente paga a', other: 'Otra salida' },
     fee: 'Comisión de red', total: 'Sale de tu wallet', credited: 'BTCVM acreditará', afterConf: 'tras {n} confirmaciones',
     payoutFee: 'Comisión de Bitcoin del pago, descontada de lo que recibes (aprox.)',
@@ -99,6 +99,9 @@ const STRINGS = {
     softwareKeyTitle: 'Windows no puede certificar que la clave de esta cartera esté en un chip TPM',
     softwareKeyText: 'Tu clave sigue cifrada y cada pago pide Windows Hello, pero la llave que la abre podría estar guardada por software en lugar de en el chip de seguridad. Pasa en equipos sin TPM o con uno antiguo. Un malware con permisos de administrador lo tendría más fácil: para cantidades grandes, usa un equipo con TPM 2.0.',
     understood: 'Entendido',
+    bump: 'Acelerar', bumpTitle: 'Acelerar un pago',
+    bumpText: 'Se envía otra vez con una comisión más alta: las mismas monedas y el mismo pago, y la diferencia sale de tu cambio. Los nodos lo aceptan porque tus pagos lo permiten (RBF). Cuando se confirme uno de los dos, el otro deja de valer: nunca se paga dos veces.',
+    previousFee: 'Comisión anterior',
     checkTitle: 'Comprueba tu copia',
     checkWordsText: 'Para asegurarte de que la has apuntado bien, escribe estas palabras de tu frase. Son solo unas pocas: no bastan para reconstruir tu clave.',
     checkCharsText: 'Para asegurarte de que la has apuntado bien, escribe estos caracteres de tu clave. Son solo unos pocos: no bastan para reconstruirla.',
@@ -134,7 +137,7 @@ const STRINGS = {
     unconfirmed: 'unconfirmed', confs: '{n} conf.',
     bridge: 'The bridge', pegPinned: 'Peg address (pinned in the wallet)', audit: 'Audit: {locked} BTC locked for {circ} BTC circulating',
     solvent: 'backed', notSolvent: 'NOT backed', feeRate: 'Bitcoin fee estimate: {rate} sat/vB',
-    reviewTitle: { send: 'Send on {chain}', deposit: 'Move to BTCVM', withdraw: 'Withdraw to Bitcoin' },
+    reviewTitle: { send: 'Send on {chain}', deposit: 'Move to BTCVM', withdraw: 'Withdraw to Bitcoin', bump: 'Speed up a payment on Bitcoin' },
     role: { pay: 'Pays', deposit: 'Your deposit address (checked against the pinned signers)', reserve: 'The bridge\'s reserve (pinned in the wallet)', change: 'Change: back to you', tag: 'Tag: the bridge pays', other: 'Other output' },
     fee: 'Network fee', total: 'Leaves your wallet', credited: 'BTCVM will credit', afterConf: 'after {n} confirmations',
     payoutFee: 'Bitcoin fee of the payout, taken from what you receive (about)',
@@ -199,6 +202,9 @@ const STRINGS = {
     softwareKeyTitle: 'Windows can\'t certify that this wallet\'s key is in a TPM chip',
     softwareKeyText: 'Your key is still encrypted and every payment asks for Windows Hello, but the key that opens it may be kept in software rather than in the security chip. That happens on PCs without a TPM or with an old one. Malware with administrator rights would have an easier time: for large amounts, use a PC with TPM 2.0.',
     understood: 'Got it',
+    bump: 'Speed up', bumpTitle: 'Speed up a payment',
+    bumpText: 'It is sent again with a higher fee: the same coins and the same payment, the difference coming out of your change. Nodes accept it because your payments allow it (RBF). Once one of the two confirms, the other is void: it is never paid twice.',
+    previousFee: 'Previous fee',
     checkTitle: 'Check your backup',
     checkWordsText: 'To make sure you wrote it down right, type these words of your phrase. They are only a few: not enough to rebuild your key.',
     checkCharsText: 'To make sure you wrote it down right, type these characters of your key. They are only a few: not enough to rebuild it.',
@@ -306,6 +312,11 @@ const ERRORS_ES = [
   ['back up your key before receiving', 'haz la copia de seguridad de tu clave antes de recibir'],
   ['copy your recovery phrase or your key (WIF) first, then press the button', 'copia primero tu frase de recuperación o tu clave (WIF) y luego pulsa el botón'],
   ['there is no backup to check', 'no hay ninguna copia que comprobar'],
+  ['that payment isn\'t waiting any more', 'ese pago ya no está pendiente'],
+  ['this payment can\'t be replaced: it doesn\'t signal BIP 125', 'este pago no se puede sustituir: no lo permite (BIP 125)'],
+  ['that payment pays out more than it spends', 'ese pago gasta más de lo que tiene'],
+  ['this payment has no change to pay a higher fee from', 'este pago no tiene cambio del que sacar una comisión más alta'],
+  ['the change of {} BTC can\'t pay {} BTC more in fees', 'el cambio de {0} BTC no alcanza para pagar {1} BTC más de comisión'],
   ['that doesn\'t match the backup you were shown: look at it again, or show it again', 'no coincide con la copia que se te mostró: vuelve a mirarla, o muéstrala otra vez'],
   ['a recovery phrase has 12, 15, 18, 21 or 24 words', 'una frase de recuperación tiene 12, 15, 18, 21 o 24 palabras'],
   ['word {} isn\'t one of the BIP 39 words', 'la palabra {0} no es una de las palabras BIP 39'],
@@ -670,7 +681,9 @@ function updateWallet() {
   for (const o of view.inFlight) {
     items.push(h('li', {}, h('span', {}, h('span', { class: o.chain === 'btcvm' ? 'tag vm' : 'tag' }, o.chain === 'btcvm' ? 'BTCVM' : 'Bitcoin'), ' ',
       t(`kinds.${o.kind}`), ' · ', `${(o.amount / 1e8).toFixed(8).replace(/\.?0+$/, '')} BTC → `, h('span', { class: 'mono' }, short(o.to))),
-    link(o.chain === 'btcvm' ? 'tx-btcvm' : 'tx-bitcoin', o.txid, t('view'))));
+    h('span', { class: 'row' },
+      o.chain === 'bitcoin' ? h('button', { class: 'link', type: 'button', onclick: () => openBump(o) }, t('bump')) : null,
+      link(o.chain === 'btcvm' ? 'tx-btcvm' : 'tx-bitcoin', o.txid, t('view')))));
   }
   for (const w of view.withdrawals.filter((w) => (w.paymentConfirmations || 0) === 0 && w.status !== 'unknown')) {
     const status = t(`withdrawalStatus.${w.status}`, { pays: w.pays || '' });
@@ -775,6 +788,7 @@ function showReview(r) {
     h('p', { class: 'small muted' }, `${t('from')}: ${r.walletName}`),
     ...notes,
     h('table', {}, h('tbody', {}, rows,
+      r.previousFee ? h('tr', {}, h('td', {}, t('previousFee')), h('td', { class: 'num' }, `${r.previousFee} BTC`)) : null,
       h('tr', {}, h('td', {}, t('fee'), r.feeRate ? ` (${t('feeRateUsed', { rate: r.feeRate })})` : ''), h('td', { class: 'num' }, `${r.fee} BTC`)),
       h('tr', { class: 'total' }, h('td', {}, t('total')), h('td', { class: 'num' }, `${r.total} BTC`, fiat(r.total) ? h('div', { class: 'small muted' }, `≈ ${fiat(r.total)}`) : null)),
       r.credited ? h('tr', {}, h('td', {}, t('credited'), r.confirmations ? ` (${t('afterConf', { n: r.confirmations })})` : ''), h('td', { class: 'num' }, `${r.credited} BTC`)) : null,
@@ -1032,6 +1046,23 @@ async function openQr() {
     h('p', { class: 'small muted' }, t('qrText')),
     h('p', { class: 'mono' }, qr.address),
     h('div', { class: 'row spread' }, h('span'), h('button', { type: 'button', onclick: () => $('modal').close() }, t('close'))));
+}
+
+/** A higher fee for a payment still waiting on Bitcoin: pick it, review the
+ *  replacement, sign. */
+function openBump(o) {
+  openModal(
+    h('h2', {}, t('bumpTitle')),
+    h('p', { class: 'small' }, `${t(`kinds.${o.kind}`)} · ${(o.amount / 1e8).toFixed(8).replace(/\.?0+$/, '')} BTC → `, h('span', { class: 'mono' }, short(o.to))),
+    h('p', { class: 'small muted' }, t('bumpText')),
+    feeBlock('bump'),
+    h('div', { class: 'row spread' },
+      h('button', { type: 'button', onclick: () => $('modal').close() }, t('cancel')),
+      h('button', { class: 'primary', type: 'button', onclick: async () => {
+        const review = await act(() => invoke('prepare_bump', { txid: o.txid, feeRate: chosenFee('bump') }));
+        if (review) showReview(review);
+      } }, t('review'))));
+  updateFeeNote('bump');
 }
 
 async function exportCsv() {

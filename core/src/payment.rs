@@ -384,6 +384,95 @@ pub fn sign_plan(key: &Key, plan: &Plan) -> Result<Signed> {
     })
 }
 
+/// Plans a replacement for `original`, a payment of the wallet's on Bitcoin
+/// still waiting to confirm (BIP 125): the same coins and the same outputs,
+/// paying `fee_rate`, with the extra fee taken from the change. Each coin is
+/// checked against the transaction that created it, from `raw_txs`, as for
+/// a payment. Nodes take a replacement only if it pays more than the
+/// original, by at least 1 sat/vB of its own size, so it pays at least that.
+pub fn plan_bump(
+    from: &Destination,
+    original: &[u8],
+    raw_txs: &HashMap<String, String>,
+    fee_rate: u64,
+) -> Result<Plan> {
+    if from.kind() != Kind::P2wpkh {
+        return invalid("the wallet spends only its own native SegWit coins");
+    }
+    if !(1..=MAX_FEE_RATE).contains(&fee_rate) {
+        return invalid(format!(
+            "a fee rate of {fee_rate} sat/vB looks wrong; refusing"
+        ));
+    }
+    let parsed = parse_tx(original)?;
+    if parsed.sequences.iter().all(|&s| s >= 0xffff_fffe) {
+        return invalid("this payment can't be replaced: it doesn't signal BIP 125");
+    }
+    let from_script = from.pk_script();
+    let mut inputs = Vec::with_capacity(parsed.inputs.len());
+    let mut total = 0u64;
+    for (txid, vout) in &parsed.inputs {
+        let coin = Utxo {
+            txid: txid.clone(),
+            vout: *vout,
+            value: String::new(),
+            script: hex::encode(&from_script),
+            confirmations: 1,
+        };
+        let input = verified_input(&coin, raw_txs, &from_script)?;
+        total = total
+            .checked_add(input.value)
+            .ok_or_else(|| Error::Untrusted("coin values overflow".into()))?;
+        inputs.push(input);
+    }
+    let paid = parsed
+        .outputs
+        .iter()
+        .try_fold(0u64, |sum, o| sum.checked_add(o.value))
+        .ok_or_else(|| Error::Untrusted("coin values overflow".into()))?;
+    let old_fee = total
+        .checked_sub(paid)
+        .ok_or_else(|| Error::Untrusted("that payment pays out more than it spends".into()))?;
+    let Some(change) = parsed.outputs.iter().rposition(|o| o.script == from_script) else {
+        return invalid("this payment has no change to pay a higher fee from");
+    };
+    let size = vsize(inputs.len(), &parsed.outputs);
+    let fee = (fee_rate * size).max(old_fee + size);
+    if fee > MAX_FEE {
+        return invalid(format!(
+            "the fee would be {} BTC; refusing to sign",
+            format_btc(fee)
+        ));
+    }
+    let mut outputs = parsed.outputs.clone();
+    let extra = fee - old_fee;
+    outputs[change].value = outputs[change]
+        .value
+        .checked_sub(extra)
+        .filter(|left| *left >= DUST)
+        .ok_or_else(|| {
+            Error::Invalid(format!(
+                "the change of {} BTC can't pay {} BTC more in fees",
+                format_btc(parsed.outputs[change].value),
+                format_btc(extra)
+            ))
+        })?;
+    let tx = Tx {
+        version: TX_VERSION,
+        inputs,
+        outputs,
+    };
+    let unsigned = tx.serialize();
+    Ok(Plan {
+        chain: Chain::Bitcoin,
+        fee,
+        total_in: total,
+        tx,
+        from: from.clone(),
+        unsigned,
+    })
+}
+
 /// Plans and signs in one step.
 pub fn build_payment(
     key: &Key,

@@ -18,8 +18,8 @@ use btcvm_wallet_core::payment::MAX_FEE_RATE;
 use btcvm_wallet_core::tx::parse_tx;
 use btcvm_wallet_core::{
     BridgeInfo, Chain, Coins, Destination, Kind as AddressKind, MAINNET, Plan, Request,
-    VerifiedBridge, about, decode_address, format_btc, max_payment, parse_btc, plan_deposit,
-    plan_send, plan_withdrawal, sign_plan,
+    VerifiedBridge, about, decode_address, format_btc, max_payment, parse_btc, plan_bump,
+    plan_deposit, plan_send, plan_withdrawal, sign_plan,
 };
 use btcvm_wallet_vault::{Secret, Vault, VaultError, WindowsHello};
 use serde::Serialize;
@@ -143,6 +143,8 @@ struct Pending {
     plan: Plan,
     to: String,
     amount: u64,
+    /// For a replacement with a higher fee: the payment it replaces.
+    replaces: Option<String>,
 }
 
 pub struct Wallet {
@@ -393,6 +395,8 @@ pub struct Review {
     pub confirmations: Option<u32>,
     /// A withdrawal: the Bitcoin fee taken from the payout at today's rate.
     pub payout_fee: Option<String>,
+    /// A replacement: the fee of the payment it replaces.
+    pub previous_fee: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1671,7 +1675,7 @@ impl Wallet {
         bridge_for_fee.btc_fee_rate = Self::fee_rate(&bridge, fee_rate);
         let plan = plan_send(&bridge_for_fee, chain, &from, coins, &to, amount)?;
         let rate = Self::fee_rate(&bridge, fee_rate);
-        Ok(self.review(Kind::Send, id, plan, to, amount, &bridge, Some(rate)))
+        Ok(self.review(Kind::Send, id, plan, to, amount, &bridge, Some(rate), None))
     }
 
     pub fn prepare_deposit(&self, amount: &str, fee_rate: Option<u64>) -> Outcome<Review> {
@@ -1692,7 +1696,16 @@ impl Wallet {
         bridge_for_fee.btc_fee_rate = Self::fee_rate(&bridge, fee_rate);
         let plan = plan_deposit(&bridge_for_fee, &from, coins, amount, &told)?;
         let rate = Self::fee_rate(&bridge, fee_rate);
-        Ok(self.review(Kind::Deposit, id, plan, told, amount, &bridge, Some(rate)))
+        Ok(self.review(
+            Kind::Deposit,
+            id,
+            plan,
+            told,
+            amount,
+            &bridge,
+            Some(rate),
+            None,
+        ))
     }
 
     pub fn prepare_withdrawal(&self, to: &str, amount: &str) -> Outcome<Review> {
@@ -1706,7 +1719,7 @@ impl Wallet {
         };
         let to = book::canonical(to.trim(), &MAINNET)?;
         let plan = plan_withdrawal(&bridge, &from, coins, amount, &to)?;
-        Ok(self.review(Kind::Withdraw, id, plan, to, amount, &bridge, None))
+        Ok(self.review(Kind::Withdraw, id, plan, to, amount, &bridge, None, None))
     }
 
     /// The most an action can move now, as BTC for the amount field: all the
@@ -1786,6 +1799,7 @@ impl Wallet {
         amount: u64,
         bridge: &VerifiedBridge,
         fee_rate: Option<u64>,
+        replaces: Option<String>,
     ) -> Review {
         let info = self.snapshot.guard().info.clone();
         let outputs = plan
@@ -1840,7 +1854,11 @@ impl Wallet {
             .unwrap_or_default();
         let review = Review {
             id: 0,
-            kind: kind.name(),
+            kind: if replaces.is_some() {
+                "bump"
+            } else {
+                kind.name()
+            },
             chain: chain_name(plan.chain),
             wallet_name,
             to: to.clone(),
@@ -1859,6 +1877,7 @@ impl Wallet {
             payout_fee: (kind == Kind::Withdraw)
                 .then(|| info.as_ref().and_then(|i| i.payout_fee.clone()))
                 .flatten(),
+            previous_fee: None,
         };
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         *self.pending.guard() = Some(Pending {
@@ -1868,8 +1887,68 @@ impl Wallet {
             plan,
             to,
             amount,
+            replaces,
         });
         Review { id, ..review }
+    }
+
+    /// Plans a stalled Bitcoin payment's replacement with a higher fee, for
+    /// review: the same coins and the same payment, the extra fee from the
+    /// change. Its transaction, and those that made its coins, are checked
+    /// against their ids.
+    pub fn prepare_bump(&self, txid: &str, fee_rate: u64) -> Outcome<Review> {
+        let bridge = self.verified()?;
+        let (id, from) = self.own()?;
+        let record = self
+            .record(&id)
+            .and_then(|r| {
+                r.outgoing
+                    .into_iter()
+                    .find(|o| o.txid == txid && o.chain == "bitcoin")
+            })
+            .map_or_else(|| fail("that payment isn't waiting any more"), Ok)?;
+        let api = self.bridge();
+        let untrusted = |message: String| Failure {
+            message,
+            untrusted: true,
+            canceled: false,
+        };
+        let raw = hex::decode(api.raw_tx(Chain::Bitcoin, txid)?.trim())
+            .map_err(|_| untrusted(format!("transaction {txid} is not hex")))?;
+        let original = parse_tx(&raw)?;
+        if original.txid() != txid {
+            return Err(untrusted(format!(
+                "the server sent the wrong transaction for {txid}"
+            )));
+        }
+        let mut raws = HashMap::new();
+        for (prev, _) in &original.inputs {
+            if !raws.contains_key(prev) {
+                raws.insert(prev.clone(), api.raw_tx(Chain::Bitcoin, prev)?);
+            }
+        }
+        let plan = plan_bump(&from, &raw, &raws, fee_rate)?;
+        let paid: u64 = original.outputs.iter().map(|o| o.value).sum();
+        let previous_fee = plan.total_in.saturating_sub(paid);
+        let kind = if record.kind == "deposit" {
+            Kind::Deposit
+        } else {
+            Kind::Send
+        };
+        let review = self.review(
+            kind,
+            id,
+            plan,
+            record.to,
+            record.amount,
+            &bridge,
+            Some(fee_rate),
+            Some(txid.to_string()),
+        );
+        Ok(Review {
+            previous_fee: Some(format_btc(previous_fee)),
+            ..review
+        })
     }
 
     pub fn cancel(&self, id: u64) {
@@ -1918,6 +1997,7 @@ impl Wallet {
             .sum();
         let time = now();
         // Recorded before sending, so it's tracked even if the answer is lost.
+        // A replacement's original stays until the network takes this one.
         self.update_record(&wallet, |r| {
             r.outgoing.retain(|o| o.txid != signed.txid);
             r.outgoing.insert(
@@ -1952,10 +2032,16 @@ impl Wallet {
             }
         });
         let result = match self.bridge().broadcast(chain, &signed.hex) {
-            Ok(txid) if txid == signed.txid => Ok(Sent {
-                txid,
-                chain: chain_name(chain),
-            }),
+            Ok(txid) if txid == signed.txid => {
+                if let Some(original) = &pending.replaces {
+                    self.update_record(&wallet, |r| r.outgoing.retain(|o| &o.txid != original));
+                    journal::info(&format!("replaced {original} with {txid}"));
+                }
+                Ok(Sent {
+                    txid,
+                    chain: chain_name(chain),
+                })
+            }
             Ok(txid) => Err(Failure {
                 message: format!(
                     "the bridge reported transaction {txid}, but this wallet signed {}",
@@ -1965,7 +2051,8 @@ impl Wallet {
                 canceled: false,
             }),
             Err(e) if e.status == 400 => {
-                // Refused, so nothing was sent: its coins are free again.
+                // Refused, so nothing was sent: its coins are free again, or
+                // for a replacement, still the original's.
                 self.update_record(&wallet, |r| {
                     r.outgoing.retain(|o| o.txid != signed.txid);
                     r.withdrawals.retain(|w| w.txid != signed.txid);

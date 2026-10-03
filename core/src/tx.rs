@@ -135,6 +135,9 @@ impl Tx {
 #[derive(Debug, Clone)]
 pub struct Parsed {
     pub inputs: Vec<(String, u32)>,
+    /// Each input's sequence number: below 0xfffffffe, it signals that the
+    /// transaction may be replaced (BIP 125).
+    pub sequences: Vec<u32>,
     pub outputs: Vec<TxOut>,
     stripped: Vec<u8>,
 }
@@ -159,6 +162,7 @@ pub fn parse_tx(raw: &[u8]) -> Result<Parsed> {
     }
     let body_start = r.at;
     let mut inputs = Vec::new();
+    let mut sequences = Vec::new();
     for _ in 0..r.varint()? {
         let prev = r.take(36)?;
         let mut id = prev[..32].to_vec();
@@ -167,7 +171,7 @@ pub fn parse_tx(raw: &[u8]) -> Result<Parsed> {
         inputs.push((hex::encode(id), vout));
         let script = r.varint()?;
         r.take(script)?;
-        r.take(4)?; // sequence
+        sequences.push(u32::from_le_bytes(r.take(4)?.try_into().expect("4 bytes")));
     }
     let mut outputs = Vec::new();
     for _ in 0..r.varint()? {
@@ -198,6 +202,7 @@ pub fn parse_tx(raw: &[u8]) -> Result<Parsed> {
     };
     Ok(Parsed {
         inputs,
+        sequences,
         outputs,
         stripped,
     })
