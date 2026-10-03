@@ -265,6 +265,14 @@ fn agent(timeout: Option<Duration>) -> ureq::Agent {
         .user_agent(btcvm_wallet_core::about::user_agent(env!(
             "CARGO_PKG_VERSION"
         )))
+        // Certificates are checked by Windows, as a browser does, so the app
+        // works where antivirus or a company proxy inspects TLS. The wallet's
+        // safety doesn't rest on TLS: what moves coins is checked by the core.
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        )
         .http_status_as_error(false)
         .https_only(true)
         .build()
@@ -322,4 +330,18 @@ fn check_txid(txid: &str) -> Result<(), ApiError> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "needs the network"]
+    fn reaches_the_live_bridge() {
+        let bridge = Bridge::new(DEFAULT_SERVER);
+        if let Err(e) = bridge.info() {
+            panic!("{} (status {})", e.message, e.status);
+        }
+    }
 }

@@ -12,7 +12,8 @@ const STRINGS = {
     welcomeTitle: 'Tu wallet de Bitcoin y BTCVM',
     welcomeText: 'Una clave, la misma dirección en Bitcoin y en BTCVM, y Windows Hello para cada pago. La clave se crea en este PC y se guarda cifrada con una clave de Windows Hello que vive en el TPM.',
     create: 'Crear una wallet nueva', importClip: 'Importar mi clave desde el portapapeles',
-    importHint: 'Para importar, copia tu clave (WIF, empieza por K o L) y pulsa el botón: se lee aquí y el portapapeles se borra. Windows Hello te pedirá confirmación.',
+    importHint: 'Para importar, copia tu clave (WIF, empieza por K o L) y pulsa el botón: se lee aquí y el portapapeles se borra.',
+    helloTwice: 'Al crear o importar la wallet, Windows Hello te pedirá el PIN dos veces: una para crear su clave en el TPM y otra para cifrar tu clave con ella. Después, una vez por cada pago.',
     yourAddress: 'Tu dirección', sameAddress: 'La misma en Bitcoin y en BTCVM.', copy: 'Copiar', copied: 'Dirección copiada',
     onBitcoin: 'Ver en Bitcoin', onBtcvm: 'Ver en BTCVM',
     blockedReceive: 'Haz la copia de seguridad de tu clave antes de recibir: este PC tiene la única copia.',
@@ -70,7 +71,8 @@ const STRINGS = {
     welcomeTitle: 'Your Bitcoin and BTCVM wallet',
     welcomeText: 'One key, the same address on Bitcoin and BTCVM, and Windows Hello for every payment. The key is made on this PC and kept encrypted to a Windows Hello key that lives in the TPM.',
     create: 'Create a new wallet', importClip: 'Import my key from the clipboard',
-    importHint: 'To import, copy your key (a WIF starting with K or L) and press the button: it is read here and the clipboard is cleared. Windows Hello will ask you to confirm.',
+    importHint: 'To import, copy your key (a WIF starting with K or L) and press the button: it is read here and the clipboard is cleared.',
+    helloTwice: 'When you create or import the wallet, Windows Hello asks for your PIN twice: once to make its key in the TPM and once to encrypt your key with it. After that, once per payment.',
     yourAddress: 'Your address', sameAddress: 'The same on Bitcoin and on BTCVM.', copy: 'Copy', copied: 'Address copied',
     onBitcoin: 'View on Bitcoin', onBtcvm: 'View on BTCVM',
     blockedReceive: 'Back up your key before receiving: this PC holds the only copy.',
@@ -247,6 +249,7 @@ function renderWelcome() {
     h('div', { class: 'row' },
       h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('create_wallet')) }, t('create')),
       h('button', { type: 'button', onclick: () => act(() => invoke('import_from_clipboard')) }, t('importClip'))),
+    h('p', { class: 'small muted' }, t('helloTwice')),
     h('p', { class: 'small muted' }, t('importHint')));
 }
 

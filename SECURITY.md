@@ -43,6 +43,11 @@ view the interface runs in.
   an address you copied. Check the destination on the review screen against the one you were given, by a
   channel other than the clipboard when it matters.
 - **BTCVM's consensus.** It runs on a single validator during the alpha.
+- **Software that inspects HTTPS.** The app checks the bridge's certificate with Windows, as a browser
+  does, so it works behind antivirus or company proxies that inspect TLS (Avast does by default). Such
+  software can read the wallet's traffic with the bridge: addresses, balances, signed transactions. It
+  never sees the key, and nothing it could change would move coins, since the wallet checks all of that
+  itself.
 
 ## The trade-off: a change of signers pauses deposits and withdrawals
 

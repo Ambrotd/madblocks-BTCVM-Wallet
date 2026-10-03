@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   core:
-    name: Core on ${{ matrix.os }} (must match BTCVM's vectors)
+    name: Build and test on ${{ matrix.os }} (the core must match BTCVM's vectors)
     strategy:
       fail-fast: false
       matrix:
@@ -22,8 +22,9 @@ jobs:
       - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
       - run: rustup default stable
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      # The app is Windows-only (WebView2, Windows Hello): on Linux, the rest.
+      - run: cargo clippy --workspace --all-targets --locked ${{ runner.os != 'Windows' && '--exclude madblocks-btcvm-wallet' || '' }} -- -D warnings
+      - run: cargo test --workspace --locked ${{ runner.os != 'Windows' && '--exclude madblocks-btcvm-wallet' || '' }}
 
   audit:
     name: No known vulnerabilities in dependencies

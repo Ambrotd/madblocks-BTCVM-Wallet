@@ -10,6 +10,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod api;
+mod clip;
 mod store;
 mod wallet;
 
@@ -20,7 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
+};
 use tauri_plugin_opener::OpenerExt;
 use wallet::{Failure, Review, Sent, View, Wallet};
 use zeroize::Zeroizing;
@@ -47,6 +50,8 @@ fn failure(message: impl Into<String>) -> Failure {
 struct Texts {
     backup_title: &'static str,
     backup_body: &'static str,
+    copy: &'static str,
+    copied: &'static str,
     saved: &'static str,
     not_yet: &'static str,
     remove_title: &'static str,
@@ -62,6 +67,8 @@ fn texts(language: &str) -> Texts {
         Texts {
             backup_title: "Tu clave privada",
             backup_body: "Esta es la clave de tu wallet (WIF):\n\n{key}\n\nGuárdala en un gestor de contraseñas o escríbela en papel. Quien la vea puede llevarse tus BTC; nunca la compartas. Sin ella, si pierdes este PC o se restablece Windows Hello, perderás tus fondos.",
+            copy: "Copiar la clave",
+            copied: "Copiada. Se borrará del portapapeles en un minuto, y Windows no la guarda en el historial del portapapeles (Win+V) ni la sincroniza. Pégala ya en tu gestor de contraseñas.",
             saved: "La he guardado",
             not_yet: "Todavía no",
             remove_title: "Quitar la wallet de este PC",
@@ -75,6 +82,8 @@ fn texts(language: &str) -> Texts {
         Texts {
             backup_title: "Your private key",
             backup_body: "This is your wallet's key (WIF):\n\n{key}\n\nKeep it in a password manager or write it on paper. Anyone who sees it can take your BTC; never share it. Without it, if you lose this PC or Windows Hello is reset, your funds are gone.",
+            copy: "Copy the key",
+            copied: "Copied. It will be cleared from the clipboard in a minute, and Windows keeps it out of clipboard history (Win+V) and cloud sync. Paste it into your password manager now.",
             saved: "I've saved it",
             not_yet: "Not yet",
             remove_title: "Remove the wallet from this PC",
@@ -88,19 +97,46 @@ fn texts(language: &str) -> Texts {
 }
 
 /// Shows the key in a native dialog, outside the web view, and says whether
-/// the user saved it.
+/// the user saved it. "Copy" puts it on the clipboard the way password
+/// managers do (see `clip`) and shows the dialog again.
 fn show_backup(app: &AppHandle, language: &str, wif: &str) -> bool {
     let t = texts(language);
-    let body = Zeroizing::new(t.backup_body.replace("{key}", wif));
-    app.dialog()
-        .message(body.as_str())
-        .title(t.backup_title)
-        .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            t.saved.into(),
-            t.not_yet.into(),
-        ))
-        .blocking_show()
+    let mut note = "";
+    loop {
+        let body = Zeroizing::new(format!(
+            "{}{}{note}",
+            t.backup_body.replace("{key}", wif),
+            if note.is_empty() {
+                ""
+            } else {
+                "
+
+"
+            }
+        ));
+        let choice = app
+            .dialog()
+            .message(body.as_str())
+            .title(t.backup_title)
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::YesNoCancelCustom(
+                t.copy.into(),
+                t.saved.into(),
+                t.not_yet.into(),
+            ))
+            .blocking_show_with_result();
+        match choice {
+            MessageDialogResult::Yes => {}
+            MessageDialogResult::Custom(label) if label == t.copy => {}
+            MessageDialogResult::No => return true,
+            MessageDialogResult::Custom(label) if label == t.saved => return true,
+            _ => return false,
+        }
+        note = match clip::copy_secret(wif) {
+            Ok(()) => t.copied,
+            Err(_) => "",
+        };
+    }
 }
 
 /// Pushes the latest view to the window, and warns once about a new signer
