@@ -45,7 +45,8 @@ const STRINGS = {
     depositHint: 'Paga desde tu saldo de Bitcoin a tu dirección de depósito personal, calculada aquí con las claves fijadas de los firmantes y comprobada con el puente. BTCVM la acredita tras las confirmaciones que pide el puente (menos para cantidades pequeñas).',
     limits: 'mínimo {min} BTC', maxCap: 'máximo {max} BTC (límite de la alfa)', vmFeeNote: 'el puente se queda {fee} BTC', payoutFeeNote: 'comisión de Bitcoin ≈ {fee} BTC',
     withdrawHint: 'Paga la reserva del puente en BTCVM con una etiqueta que nombra tu dirección de Bitcoin. El puente paga allí la cantidad menos la comisión de Bitcoin (hoy unos {fee} BTC).',
-    useMine: 'Usar mi dirección', btcAddress: 'Dirección de Bitcoin',
+    toThisWallet: 'A esta cartera', toOtherAddress: 'A otra dirección', toOtherHint: 'De Bitcoin, o de tu libreta',
+    btcAddress: 'Dirección de Bitcoin',
     paused: 'En pausa: han cambiado los firmantes del puente (ver aviso arriba).',
     inFlight: 'En curso',
     history: 'Historial', noHistory: 'Todavía no hay movimientos.', view: 'Ver',
@@ -179,7 +180,8 @@ const STRINGS = {
     depositHint: 'Pays from your Bitcoin balance to your personal deposit address, computed here from the signers\' pinned keys and checked against the bridge. BTCVM credits it after the confirmations the bridge asks for (fewer for small amounts).',
     limits: 'at least {min} BTC', maxCap: 'at most {max} BTC (alpha cap)', vmFeeNote: 'the bridge keeps {fee} BTC', payoutFeeNote: 'Bitcoin fee ≈ {fee} BTC',
     withdrawHint: 'Pays the bridge\'s reserve on BTCVM with a tag naming your Bitcoin address. The bridge pays the amount there, less Bitcoin\'s fee (about {fee} BTC today).',
-    useMine: 'Use my address', btcAddress: 'Bitcoin address',
+    toThisWallet: 'To this wallet', toOtherAddress: 'To another address', toOtherHint: 'On Bitcoin, or from your address book',
+    btcAddress: 'Bitcoin address',
     paused: 'Paused: the bridge\'s signers have changed (see the warning above).',
     inFlight: 'In flight',
     history: 'History', noHistory: 'No activity yet.', view: 'View',
@@ -452,10 +454,12 @@ let updateLater = false;
 const MANAGE = '__manage';
 /** The network a payment goes on, kept across redraws. */
 let sendChain = 'btcvm';
+/** Whether a withdrawal goes to this wallet's own address (or one typed in). */
+let withdrawMine = true;
 /** Whether the user picked a tab, so the window doesn't pick one for them. */
 let tabChosen = false;
-/** The address the receive panel shows, to redraw it when it changes. */
-let receiveShown = null;
+/** The wallet's address as the panel shows it, to redraw it when it changes. */
+let addressShown = null;
 /** The <details> the user opened, so redraws keep them open. */
 const openDetails = new Set();
 
@@ -774,10 +778,16 @@ function amountField(id, placeholder, action) {
   ];
 }
 
+/** Where a withdrawal goes: this wallet's own address, or the one typed in. */
+function withdrawTo() {
+  if (withdrawMine && view.address) return view.address;
+  return $('withdraw-to') ? $('withdraw-to').value.trim() : '';
+}
+
 async function fillMax(id, action) {
   const value = (field) => ($(field) ? $(field).value : '');
   const chain = action === 'send' ? sendChain : '';
-  const to = action === 'send' ? value('send-to') : action === 'withdraw' ? value('withdraw-to') : '';
+  const to = action === 'send' ? value('send-to') : action === 'withdraw' ? withdrawTo() : '';
   const max = await act(() => invoke('max_amount', { action, chain, to, feeRate: action === 'withdraw' ? null : chosenFee(action) }));
   if (max) {
     $(id).value = max;
@@ -820,8 +830,8 @@ function selectTab(k, focus = false) {
 
 /** The panel of the tab chosen: receiving, or a form whose Enter reviews. */
 function renderPanel() {
+  addressShown = view.address || '';
   if (tab === 'receive') {
-    receiveShown = view.address || '';
     if (!view.address) {
       return h('div', {}, h('p', {}, t('blockedReceive')),
         view.receiveBlocked ? h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('backup')) }, t('backupNow'))) : null);
@@ -863,13 +873,27 @@ function renderPanel() {
       h('p', { class: 'small bad-text', id: 'deposit-paused' }),
       h('div', { class: 'row end' }, h('button', { class: 'primary big', type: 'submit', id: 'deposit-go' }, t('review'))));
   }
-  return form('withdraw',
-    h('p', { class: 'muted' }, t('withdrawIntro')),
+  // To this wallet's own address on Bitcoin unless the user chooses another;
+  // a wallet whose address isn't shown yet (no backup) can only type one.
+  const mine = withdrawMine && !!view.address;
+  const shown = (view.wallets || []).find((w) => w.active);
+  const other = h('div', { id: 'withdraw-other', hidden: mine ? true : null },
     h('label', { for: 'withdraw-to' }, t('btcAddress')),
     h('div', { class: 'input-row' },
       h('input', { id: 'withdraw-to', autocomplete: 'off', spellcheck: 'false', placeholder: 'bc1q…' }),
-      picker('withdraw-to', () => 'bitcoin')),
-    h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => { if (view.address) { $('withdraw-to').value = view.address; refreshMax('withdraw'); } } }, t('useMine'))),
+      picker('withdraw-to', () => 'bitcoin')));
+  return form('withdraw',
+    h('p', { class: 'muted' }, t('withdrawIntro')),
+    view.address ? h('fieldset', { class: 'segmented' },
+      h('legend', {}, t('to')),
+      [['mine', t('toThisWallet'), `${walletName(shown)} · ${short(view.address)}`], ['other', t('toOtherAddress'), t('toOtherHint')]].map(([v, name, sub]) => h('label', {},
+        h('input', {
+          type: 'radio', name: 'withdraw-dest', value: v, checked: (v === 'mine') === mine ? true : null,
+          onchange: () => { withdrawMine = v === 'mine'; $('withdraw-other').hidden = withdrawMine; refreshMax('withdraw'); },
+        }),
+        h('span', { class: 'segment-name' }, name),
+        h('span', { class: 'small muted' }, sub)))) : null,
+    other,
     ...amountField('withdraw-amount', '0.0002', 'withdraw'),
     details('withdraw-how', t('howItWorks'), h('p', { class: 'small', id: 'withdraw-hint' })),
     h('p', { class: 'small bad-text', id: 'withdraw-paused' }),
@@ -978,7 +1002,7 @@ function updateSummary() {
 
 function updateWallet() {
   updateSummary();
-  if (tab === 'receive' && receiveShown !== (view.address || '')) rebuildActions();
+  if ((tab === 'receive' || tab === 'withdraw') && addressShown !== (view.address || '')) rebuildActions();
   updateActions();
   refillPickers();
   updateActivity();
@@ -1086,7 +1110,7 @@ async function prepare(kind) {
     toast(t('working'));
     if (kind === 'send') return invoke('prepare_send', { chain: sendChain, to: value('send-to'), amount: amount('send-amount'), feeRate: chosenFee('send') });
     if (kind === 'deposit') return invoke('prepare_deposit', { amount: amount('deposit-amount'), feeRate: chosenFee('deposit') });
-    return invoke('prepare_withdrawal', { to: value('withdraw-to'), amount: amount('withdraw-amount') });
+    return invoke('prepare_withdrawal', { to: withdrawTo(), amount: amount('withdraw-amount') });
   });
   if (review) showReview(review);
 }
