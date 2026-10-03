@@ -22,7 +22,6 @@
     <nav class="tools">
       <span id="net" class="pill"></span>
       <select id="wallet-select" class="wallet-select" hidden></select>
-      <button id="open-wallets" class="ghost" type="button" data-t="wallets" hidden></button>
       <button id="open-book" class="ghost" type="button" data-t="book" hidden></button>
       <button id="lang" class="ghost" type="button"></button>
       <button id="open-about" class="ghost" type="button" data-t="about"></button>
@@ -30,10 +29,10 @@
     </nav>
   </header>
 
-  <div id="banners"></div>
+  <div id="banners" role="region"></div>
   <main id="main"></main>
 
   <dialog id="modal"><div id="modal-body"></div></dialog>
-  <div id="toast" popover="manual"></div>
+  <div id="toast" popover="manual" role="status" aria-live="polite"></div>
 </body>
 </html>

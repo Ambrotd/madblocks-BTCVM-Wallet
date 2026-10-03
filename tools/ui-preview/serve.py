@@ -19,6 +19,8 @@ APP_SCRIPT = '<script type="module" src="app.js"></script>'
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # Keep-alive: with HTTP/1.0's connection per file, Windows resets some.
+    protocol_version = "HTTP/1.1"
     extensions_map = {
         **http.server.SimpleHTTPRequestHandler.extensions_map,
         ".js": "text/javascript",
