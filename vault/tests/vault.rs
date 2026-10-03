@@ -2,7 +2,7 @@
 //! nobody. `examples/hello_check.rs` checks the real Windows Hello.
 
 use btcvm_wallet_core::{Key, MAINNET};
-use btcvm_wallet_vault::{Gate, Sealed, Vault, VaultError};
+use btcvm_wallet_vault::{Gate, Sealed, Secret, Vault, VaultError};
 use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use std::cell::{Cell, RefCell};
@@ -75,6 +75,11 @@ fn temp_dir() -> PathBuf {
     dir
 }
 
+/// The same key, as a secret to store.
+fn copy(key: &Key) -> Secret {
+    Secret::Key(Key::from_bytes(key.bytes()).unwrap())
+}
+
 fn read(dir: &std::path::Path) -> Sealed {
     serde_json::from_slice(&std::fs::read(dir.join("vault.json")).unwrap()).unwrap()
 }
@@ -92,7 +97,7 @@ fn stores_and_unlocks_the_same_key() {
     assert_eq!(vault.unlock().unwrap_err(), VaultError::Missing);
 
     let key = Key::generate();
-    vault.store(&key).unwrap();
+    vault.store(&copy(&key)).unwrap();
     // Making the Windows Hello key, then its first signature.
     assert_eq!(gate.prompts.get(), 2);
     assert_eq!(
@@ -109,7 +114,7 @@ fn stores_and_unlocks_the_same_key() {
     assert!(!file.contains(&hex::encode(key.bytes())));
 
     assert_eq!(
-        vault.store(&Key::generate()).unwrap_err(),
+        vault.store(&Key::generate().into()).unwrap_err(),
         VaultError::Exists
     );
 }
@@ -119,7 +124,7 @@ fn any_change_to_the_file_stops_it_opening() {
     let gate = FakeGate::default();
     let dir = temp_dir();
     let vault = Vault::new(&dir, &gate);
-    vault.store(&Key::generate()).unwrap();
+    vault.store(&Key::generate().into()).unwrap();
     let good = read(&dir);
     let flip = |hex_value: &str| {
         let mut b = hex::decode(hex_value).unwrap();
@@ -143,7 +148,9 @@ fn any_change_to_the_file_stops_it_opening() {
         ),
         ("credential", Box::new(|s| s.credential.push('x'))),
         ("gate", Box::new(|s| s.gate = "touch-id".into())),
-        ("version", Box::new(|s| s.version = 2)),
+        ("version", Box::new(|s| s.version = 1)),
+        ("a later version", Box::new(|s| s.version = 3)),
+        ("what it holds", Box::new(|s| s.secret = "bip39".into())),
     ];
     for (what, change) in tampered {
         let mut s = good.clone();
@@ -162,7 +169,7 @@ fn a_lost_windows_hello_key_is_restored_from_the_backup() {
     let dir = temp_dir();
     let vault = Vault::new(&dir, &gate);
     let key = Key::generate();
-    vault.store(&key).unwrap();
+    vault.store(&copy(&key)).unwrap();
 
     // Windows Hello was reset: its keys are gone.
     gate.keys.borrow_mut().clear();
@@ -171,9 +178,9 @@ fn a_lost_windows_hello_key_is_restored_from_the_backup() {
     assert!(e.needs_restore());
 
     // Only this wallet's own key restores it.
-    assert!(vault.restore(&Key::generate()).is_err());
+    assert!(vault.restore(&Key::generate().into()).is_err());
     vault
-        .restore(&Key::parse(&key.wif(&MAINNET)).unwrap())
+        .restore(&Secret::parse(&key.wif(&MAINNET)).unwrap())
         .unwrap();
     assert_eq!(vault.unlock().unwrap().bytes(), key.bytes());
     // The unusable file was kept, not deleted.
@@ -186,7 +193,7 @@ fn canceling_windows_hello_loses_nothing() {
     let dir = temp_dir();
     let vault = Vault::new(&dir, &gate);
     let key = Key::generate();
-    vault.store(&key).unwrap();
+    vault.store(&copy(&key)).unwrap();
     gate.cancel.set(true);
     let e = vault.unlock().unwrap_err();
     assert_eq!(e, VaultError::Canceled);
@@ -200,12 +207,12 @@ fn removing_takes_windows_hello_and_deletes_both() {
     let gate = FakeGate::default();
     let dir = temp_dir();
     let vault = Vault::new(&dir, &gate);
-    vault.store(&Key::generate()).unwrap();
+    vault.store(&Key::generate().into()).unwrap();
     gate.cancel.set(true);
-    assert_eq!(vault.remove().unwrap_err(), VaultError::Canceled);
+    assert_eq!(vault.remove(false).unwrap_err(), VaultError::Canceled);
     assert!(vault.has_key(), "nothing is removed without Windows Hello");
     gate.cancel.set(false);
-    vault.remove().unwrap();
+    vault.remove(false).unwrap();
     assert!(!vault.has_key());
     assert!(gate.keys.borrow().is_empty());
 }
@@ -215,9 +222,71 @@ fn an_unusable_vault_is_set_aside_not_deleted() {
     let gate = FakeGate::default();
     let dir = temp_dir();
     let vault = Vault::new(&dir, &gate);
-    vault.store(&Key::generate()).unwrap();
+    vault.store(&Key::generate().into()).unwrap();
     let aside = vault.set_aside().unwrap();
     assert!(aside.exists() && !vault.has_key());
-    vault.store(&Key::generate()).unwrap();
+    vault.store(&Key::generate().into()).unwrap();
     assert!(vault.set_aside().unwrap().ends_with("vault.removed-2.json"));
+}
+
+#[test]
+fn a_recovery_phrase_is_kept_and_makes_its_key() {
+    let gate = FakeGate::default();
+    let dir = temp_dir();
+    let vault = Vault::new(&dir, &gate);
+    let phrase = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+    let secret = Secret::parse(phrase).unwrap();
+    let address = secret.key().unwrap().destination().address(&MAINNET);
+    vault.store(&secret).unwrap();
+    assert_eq!(vault.address().unwrap(), address);
+    assert_eq!(read(&dir).secret, "bip39");
+    assert_eq!(
+        vault.unlock().unwrap().destination().address(&MAINNET),
+        address
+    );
+    let back = vault.unlock_secret().unwrap();
+    assert_eq!(back.words().unwrap().as_str(), phrase);
+    // The words are nowhere in the file.
+    let file = std::fs::read_to_string(dir.join("vault.json")).unwrap();
+    assert!(!file.contains("legal"));
+}
+
+#[test]
+fn wallets_can_share_a_windows_hello_key() {
+    let gate = FakeGate::default();
+    let (first, second) = (temp_dir(), temp_dir());
+    let a = Vault::new(&first, &gate);
+    let b = Vault::new(&second, &gate);
+    a.store(&Secret::new_phrase()).unwrap();
+    assert_eq!(gate.prompts.get(), 2);
+    b.store_with(&Secret::new_phrase(), &a.gate_key().unwrap())
+        .unwrap();
+    assert_eq!(gate.prompts.get(), 3, "one prompt: only a signature");
+    assert_eq!(a.gate_key().unwrap(), b.gate_key().unwrap());
+    // Each still opens with its own signature, to its own key.
+    assert_ne!(
+        a.unlock().unwrap().destination(),
+        b.unlock().unwrap().destination()
+    );
+    // Removing one keeps the shared key for the other.
+    b.remove(true).unwrap();
+    assert!(a.unlock().is_ok());
+    a.remove(false).unwrap();
+    assert!(gate.keys.borrow().is_empty());
+}
+
+#[test]
+fn a_shared_key_that_is_gone_stores_nothing() {
+    let gate = FakeGate::default();
+    let (first, second) = (temp_dir(), temp_dir());
+    let a = Vault::new(&first, &gate);
+    a.store(&Secret::new_phrase()).unwrap();
+    let shared = a.gate_key().unwrap();
+    gate.keys.borrow_mut().clear();
+    let b = Vault::new(&second, &gate);
+    assert_eq!(
+        b.store_with(&Secret::new_phrase(), &shared).unwrap_err(),
+        VaultError::GateMissing
+    );
+    assert!(!b.has_key());
 }

@@ -83,8 +83,8 @@ reserve, is planned.
 - Every change to transaction code must keep BTCVM's web wallet vectors passing byte for byte.
 - Dependencies are few and pinned by the committed `Cargo.lock`, and CI runs `cargo audit`.
 - `scripts/secretscan.sh` refuses WIFs, extended private keys and PEM private keys in any commit. It runs
-  as the pre-commit and pre-push hooks and in CI. The vectors' keys are SHA-256 of public labels and are
-  allowed by path.
+  as the pre-commit and pre-push hooks and in CI. The test vectors' keys are public (SHA-256 of labels in
+  BTCVM's, the keys BIPs 32, 39 and 84 publish in theirs) and are allowed by path.
 - No telemetry. The app's requests go to the bridge you choose and, for two things it doesn't serve, to
   mempool.space: Bitcoin fee estimates, every ten minutes, which say nothing about you; and an old
   transaction a pruned node no longer has (from blockstream.info if mempool.space doesn't answer), which

@@ -10,10 +10,10 @@ const STRINGS = {
     byline: 'por madblocks · BP de XPR Network y validador de Metal',
     about: 'Acerca de', settings: 'Ajustes', connected: 'Conectado', offline: 'Sin conexión',
     welcomeTitle: 'Tu wallet de Bitcoin y BTCVM',
-    welcomeText: 'Una clave, la misma dirección en Bitcoin y en BTCVM, y Windows Hello para cada pago. La clave se crea en este PC y se guarda cifrada con una clave de Windows Hello que vive en el TPM.',
-    create: 'Crear una wallet nueva', importClip: 'Importar mi clave desde el portapapeles',
-    importHint: 'Para importar, copia tu clave (WIF, empieza por K o L) y pulsa el botón: se lee aquí y el portapapeles se borra.',
-    helloTwice: 'Al crear o importar la wallet, Windows Hello te pedirá el PIN dos veces: una para crear su clave en el TPM y otra para cifrar tu clave con ella. Después, una vez por cada pago.',
+    welcomeText: 'Una clave, la misma dirección en Bitcoin y en BTCVM, y Windows Hello para cada pago. Tu cartera tendrá una frase de 12 palabras para recuperarla; se crea en este PC y se guarda cifrada con una clave de Windows Hello que vive en el TPM.',
+    create: 'Crear una wallet nueva', importClip: 'Importar mis palabras o mi clave desde el portapapeles',
+    importHint: 'Para importar, copia tu frase de 12 o 24 palabras, o tu clave WIF (empieza por K o L), y pulsa el botón: se lee aquí y el portapapeles se borra.',
+    helloTwice: 'Al crear o importar tu primera cartera, Windows Hello te pedirá el PIN dos veces: una para crear su clave en el TPM y otra para cifrar la tuya con ella. Las carteras siguientes lo piden una vez, y cada pago, una vez.',
     yourAddress: 'Tu dirección', sameAddress: 'La misma en Bitcoin y en BTCVM.', copy: 'Copiar', copied: 'Dirección copiada',
     onBitcoin: 'Ver en Bitcoin', onBtcvm: 'Ver en BTCVM',
     blockedReceive: 'Haz la copia de seguridad de tu clave antes de recibir: este PC tiene la única copia.',
@@ -46,7 +46,7 @@ const STRINGS = {
     withdrawalStatus: { sending: 'Enviando', pending: 'Pendiente del pago en Bitcoin', paid: 'Pagada: {pays} BTC', unknown: 'Desconocida' },
     paidConfs: '({n} conf. en Bitcoin)', depositLabel: 'Depósito', withdrawalLabel: 'Retirada a {to}',
     bannerVault: 'No se puede abrir la bóveda de esta wallet', restoreClip: 'Restaurar desde la copia (portapapeles)',
-    restoreHint: 'Copia tu clave de respaldo (WIF) y pulsa el botón. Tiene que ser la clave de esta wallet.',
+    restoreHint: 'Copia tu frase de recuperación o tu clave WIF y pulsa el botón. Tiene que ser la de esta cartera.',
     bannerUntrusted: 'El puente no ha pasado las comprobaciones de la wallet', bannerUntrustedText: 'No se firmará nada con este puente. Puede ser un error del servidor o un ataque.',
     bannerOffline: 'No se puede conectar con el puente', bannerPaused: 'Los operadores han pausado el puente.',
     bannerInsolvent: 'La auditoría del puente indica que el peg no está totalmente cubierto. No muevas fondos entre cadenas.',
@@ -57,7 +57,7 @@ const STRINGS = {
     checkIt: 'Dónde comprobarlo',
     sources: { oldPegOnBitcoin: 'El peg antiguo en un explorador de Bitcoin: tras una rotación real, sus BTC se han movido al nuevo (solo los firmantes antiguos podían hacerlo)', newPegOnBitcoin: 'El peg nuevo en un explorador de Bitcoin', rotationProcedure: 'Cómo rotan los firmantes los operadores de BTCVM', btcvmDocs: 'Documentación de BTCVM (metalbtc.com)', btcvmExplorer: 'Explorador de BTCVM (metalbtc.com)', walletMaker: 'madblocks publica cada conjunto de firmantes verificado con las actualizaciones' },
     server: 'Servidor del puente', save: 'Guardar', reset: 'Por defecto', language: 'Idioma',
-    backupKey: 'Ver la clave de la cartera en uso (Windows Hello)', removeWallet: 'Quitar la cartera en uso de este PC',
+    backupKey: 'Ver la copia de la cartera en uso (Windows Hello)', removeWallet: 'Quitar la cartera en uso de este PC',
     security: 'Seguridad',
     securityText: 'La clave se descifra solo para firmar, tras Windows Hello, y nunca llega a esta ventana. Las direcciones de depósito y la reserva del puente se calculan aquí a partir de los firmantes fijados en la wallet; el servidor no puede redirigir un pago. Cada moneda se comprueba contra la transacción que la creó y las comisiones tienen tope.',
     aboutTitle: 'Acerca de',
@@ -69,7 +69,7 @@ const STRINGS = {
     manageWallets: 'Tus carteras',
     walletsText: 'Cada cartera es una clave distinta, con su propia dirección (la misma en Bitcoin y en BTCVM), su copia de seguridad y su clave de Windows Hello. Para mover fondos entre ellas, envía a la dirección de la otra: aparecen en «Elegir de la libreta…».',
     active: 'en uso', use: 'Usar', rename: 'Renombrar', newWalletName: 'Nombre de la nueva cartera (opcional)', namePlaceholder: 'Ej.: Ahorro',
-    newWallet: 'Crear cartera nueva', importWallet: 'Importar clave del portapapeles', needsBackup: 'sin copia de seguridad',
+    newWallet: 'Crear cartera nueva', importWallet: 'Importar palabras o clave del portapapeles', needsBackup: 'sin copia de seguridad',
     bookTitle: 'Libreta de direcciones',
     bookText: 'Nombres para las direcciones a las que pagas. Guarda cada una para la red en la que la usas: la misma dirección existe en Bitcoin y en BTCVM, pero un exchange que solo vigila Bitcoin no verá lo que le envíes en BTCVM.',
     noContacts: 'Todavía no hay direcciones guardadas.', contactName: 'Nombre', contactAddress: 'Dirección', addContact: 'Guardar en la libreta', delete: 'Borrar', newName: 'Nuevo nombre',
@@ -99,16 +99,21 @@ const STRINGS = {
     softwareKeyTitle: 'Windows no puede certificar que la clave de esta cartera esté en un chip TPM',
     softwareKeyText: 'Tu clave sigue cifrada y cada pago pide Windows Hello, pero la llave que la abre podría estar guardada por software en lugar de en el chip de seguridad. Pasa en equipos sin TPM o con uno antiguo. Un malware con permisos de administrador lo tendría más fácil: para cantidades grandes, usa un equipo con TPM 2.0.',
     understood: 'Entendido',
+    checkTitle: 'Comprueba tu copia',
+    checkWordsText: 'Para asegurarte de que la has apuntado bien, escribe estas palabras de tu frase. Son solo unas pocas: no bastan para reconstruir tu clave.',
+    checkCharsText: 'Para asegurarte de que la has apuntado bien, escribe estos caracteres de tu clave. Son solo unos pocos: no bastan para reconstruirla.',
+    checkWord: 'Palabra n.º {n}', checkChars: 'Caracteres del {a} al {b}',
+    notNow: 'Ahora no', showAgain: 'Ver la copia otra vez', check: 'Comprobar', checkOk: 'Copia comprobada',
     tpmStatus: 'Clave de Windows Hello de la cartera en uso', tpmCertified: 'en un chip TPM (certificado por Windows)', tpmNotCertified: 'Windows no certifica que esté en un TPM', tpmUnknown: 'comprobando…',
   },
   en: {
     byline: 'by madblocks · XPR Network BP and Metal validator',
     about: 'About', settings: 'Settings', connected: 'Connected', offline: 'Offline',
     welcomeTitle: 'Your Bitcoin and BTCVM wallet',
-    welcomeText: 'One key, the same address on Bitcoin and BTCVM, and Windows Hello for every payment. The key is made on this PC and kept encrypted to a Windows Hello key that lives in the TPM.',
-    create: 'Create a new wallet', importClip: 'Import my key from the clipboard',
-    importHint: 'To import, copy your key (a WIF starting with K or L) and press the button: it is read here and the clipboard is cleared.',
-    helloTwice: 'When you create or import the wallet, Windows Hello asks for your PIN twice: once to make its key in the TPM and once to encrypt your key with it. After that, once per payment.',
+    welcomeText: 'One key, the same address on Bitcoin and BTCVM, and Windows Hello for every payment. Your wallet gets a 12-word phrase to restore it; it is made on this PC and kept encrypted to a Windows Hello key that lives in the TPM.',
+    create: 'Create a new wallet', importClip: 'Import my words or my key from the clipboard',
+    importHint: 'To import, copy your 12- or 24-word phrase, or your WIF key (starting with K or L), and press the button: it is read here and the clipboard is cleared.',
+    helloTwice: 'When you create or import your first wallet, Windows Hello asks for your PIN twice: once to make its key in the TPM and once to encrypt yours with it. Later wallets ask once, and each payment once.',
     yourAddress: 'Your address', sameAddress: 'The same on Bitcoin and on BTCVM.', copy: 'Copy', copied: 'Address copied',
     onBitcoin: 'View on Bitcoin', onBtcvm: 'View on BTCVM',
     blockedReceive: 'Back up your key before receiving: this PC holds the only copy.',
@@ -141,7 +146,7 @@ const STRINGS = {
     withdrawalStatus: { sending: 'Sending', pending: 'Waiting for the Bitcoin payout', paid: 'Paid: {pays} BTC', unknown: 'Unknown' },
     paidConfs: '({n} conf. on Bitcoin)', depositLabel: 'Deposit', withdrawalLabel: 'Withdrawal to {to}',
     bannerVault: 'This wallet\'s vault can\'t be opened', restoreClip: 'Restore from the backup (clipboard)',
-    restoreHint: 'Copy your backup key (WIF) and press the button. It must be this wallet\'s key.',
+    restoreHint: 'Copy your recovery phrase or your WIF key and press the button. It must be this wallet\'s.',
     bannerUntrusted: 'The bridge failed the wallet\'s checks', bannerUntrustedText: 'Nothing will be signed with this bridge. It may be a server fault or an attack.',
     bannerOffline: 'Can\'t reach the bridge', bannerPaused: 'The operators have paused the bridge.',
     bannerInsolvent: 'The bridge\'s audit shows the peg isn\'t fully backed. Don\'t move coins between the chains.',
@@ -152,7 +157,7 @@ const STRINGS = {
     checkIt: 'Where to check it',
     sources: { oldPegOnBitcoin: 'The old peg on a Bitcoin explorer: after a real rotation its BTC have moved to the new one (only the old signers could do that)', newPegOnBitcoin: 'The new peg on a Bitcoin explorer', rotationProcedure: 'How BTCVM\'s operators rotate the signers', btcvmDocs: 'BTCVM\'s documentation (metalbtc.com)', btcvmExplorer: 'BTCVM\'s explorer (metalbtc.com)', walletMaker: 'madblocks publish each verified signer set with the wallet\'s updates' },
     server: 'Bridge server', save: 'Save', reset: 'Default', language: 'Language',
-    backupKey: 'Show the key of the wallet in use (Windows Hello)', removeWallet: 'Remove the wallet in use from this PC',
+    backupKey: 'Show the backup of the wallet in use (Windows Hello)', removeWallet: 'Remove the wallet in use from this PC',
     security: 'Security',
     securityText: 'The key is decrypted only to sign, after Windows Hello, and never reaches this window. Deposit addresses and the bridge\'s reserve are computed here from the signers pinned in the wallet; the server can\'t redirect a payment. Every coin is checked against the transaction that created it, and fees are capped.',
     aboutTitle: 'About',
@@ -164,7 +169,7 @@ const STRINGS = {
     manageWallets: 'Your wallets',
     walletsText: 'Each wallet is a different key, with its own address (the same on Bitcoin and BTCVM), its own backup and its own Windows Hello key. To move funds between them, send to the other\'s address: they appear under "Pick from the address book…".',
     active: 'in use', use: 'Use', rename: 'Rename', newWalletName: 'Name of the new wallet (optional)', namePlaceholder: 'e.g. Savings',
-    newWallet: 'Create a new wallet', importWallet: 'Import a key from the clipboard', needsBackup: 'not backed up',
+    newWallet: 'Create a new wallet', importWallet: 'Import words or a key from the clipboard', needsBackup: 'not backed up',
     bookTitle: 'Address book',
     bookText: 'Names for the addresses you pay. Save each for the network you use it on: the same address exists on Bitcoin and BTCVM, but an exchange that only watches Bitcoin won\'t see what you send it on BTCVM.',
     noContacts: 'No saved addresses yet.', contactName: 'Name', contactAddress: 'Address', addContact: 'Save to the address book', delete: 'Delete', newName: 'New name',
@@ -194,6 +199,11 @@ const STRINGS = {
     softwareKeyTitle: 'Windows can\'t certify that this wallet\'s key is in a TPM chip',
     softwareKeyText: 'Your key is still encrypted and every payment asks for Windows Hello, but the key that opens it may be kept in software rather than in the security chip. That happens on PCs without a TPM or with an old one. Malware with administrator rights would have an easier time: for large amounts, use a PC with TPM 2.0.',
     understood: 'Got it',
+    checkTitle: 'Check your backup',
+    checkWordsText: 'To make sure you wrote it down right, type these words of your phrase. They are only a few: not enough to rebuild your key.',
+    checkCharsText: 'To make sure you wrote it down right, type these characters of your key. They are only a few: not enough to rebuild it.',
+    checkWord: 'Word #{n}', checkChars: 'Characters {a} to {b}',
+    notNow: 'Not now', showAgain: 'Show the backup again', check: 'Check', checkOk: 'Backup checked',
     tpmStatus: 'Windows Hello key of the wallet in use', tpmCertified: 'in a TPM chip (certified by Windows)', tpmNotCertified: 'Windows doesn\'t certify it\'s in a TPM', tpmUnknown: 'checking…',
   },
 };
@@ -294,7 +304,15 @@ const ERRORS_ES = [
   ['this wallet\'s vault can\'t be read', 'no se puede leer la bóveda de esta cartera'],
   ['the key in the vault isn\'t this wallet\'s address; nothing was signed', 'la clave de la bóveda no es la de la dirección de esta cartera; no se ha firmado nada'],
   ['back up your key before receiving', 'haz la copia de seguridad de tu clave antes de recibir'],
-  ['copy your key (WIF) first, then press the button', 'copia primero tu clave (WIF) y luego pulsa el botón'],
+  ['copy your recovery phrase or your key (WIF) first, then press the button', 'copia primero tu frase de recuperación o tu clave (WIF) y luego pulsa el botón'],
+  ['there is no backup to check', 'no hay ninguna copia que comprobar'],
+  ['that doesn\'t match the backup you were shown: look at it again, or show it again', 'no coincide con la copia que se te mostró: vuelve a mirarla, o muéstrala otra vez'],
+  ['a recovery phrase has 12, 15, 18, 21 or 24 words', 'una frase de recuperación tiene 12, 15, 18, 21 o 24 palabras'],
+  ['word {} isn\'t one of the BIP 39 words', 'la palabra {0} no es una de las palabras BIP 39'],
+  ['the recovery phrase\'s checksum doesn\'t match: check each word and their order', 'la suma de control de la frase no cuadra: revisa cada palabra y su orden'],
+  ['a recovery phrase\'s entropy is 16 to 32 bytes, in steps of 4', 'la entropía de una frase es de 16 a 32 bytes, de 4 en 4'],
+  ['this phrase derives an unusable key; use another', 'esta frase da una clave inutilizable; usa otra'],
+  ['the sealed secret has the wrong length', 'el secreto sellado no tiene la longitud correcta'],
   ['no such link', 'ese enlace no existe'],
   ['unknown currency', 'moneda desconocida'],
   ['the QR code: {}', 'el código QR: {0}'],
@@ -330,6 +348,11 @@ let aboutInfo = null;
 let mode = null;
 let tab = 'send';
 let busy = false;
+/** Called when the dialog closes, unless replaced first. */
+let modalOnClose = null;
+/** 'check' while the dialog asks for the backup back. */
+let modalKind = null;
+let checkShown = null;
 
 function t(key, vars) {
   let s = key.split('.').reduce((o, k) => (o == null ? o : o[k]), STRINGS[lang]);
@@ -692,6 +715,12 @@ function apply(next) {
     $('main').replaceChildren(...(mode === 'wallet' ? renderWalletSkeleton() : mode === 'welcome' ? [renderWelcome()] : []));
   }
   if (mode === 'wallet') updateWallet();
+  if (view.backupCheck) {
+    if (modalKind !== 'check' || checkShown !== JSON.stringify(view.backupCheck)) openBackupCheck();
+  } else if (modalKind === 'check') {
+    modalOnClose = null;
+    $('modal').close();
+  }
 }
 
 // --- review and signing ------------------------------------------------------------
@@ -755,6 +784,8 @@ function showReview(r) {
 }
 
 function openModal(...content) {
+  modalOnClose = null;
+  modalKind = null;
   $('modal-body').replaceChildren(...content);
   if (!$('modal').open) $('modal').showModal();
 }
@@ -899,7 +930,9 @@ function twoStep(label, onConfirm) {
 }
 
 function openWallets() {
-  const after = (v) => { if (v) openWallets(); };
+  // After making or importing one: the list again, unless its backup is to
+  // be checked first.
+  const after = (v) => { if (v && !v.backupCheck) openWallets(); };
   const rows = (view.wallets || []).map((w) => h('li', {},
     h('div', { class: 'grow' },
       h('div', {}, h('strong', {}, walletName(w)), w.active ? h('span', { class: 'tag vm' }, t('active')) : null,
@@ -1006,6 +1039,35 @@ async function exportCsv() {
   if (saved === true) toast(t('exported'));
 }
 
+/** Asks for some words (or characters) of the backup just shown. Closing it
+ *  any other way than checking leaves the wallet as it was. */
+function openBackupCheck() {
+  const c = view.backupCheck;
+  const inputs = c.items.map((_, i) => h('input', { id: `check-${i}`, autocomplete: 'off', spellcheck: 'false' }));
+  const label = ([a, b]) => (c.kind === 'words' ? t('checkWord', { n: a }) : t('checkChars', { a, b }));
+  const verify = async () => {
+    const result = await act(() => invoke('verify_backup', { answers: inputs.map((i) => i.value) }));
+    if (result) {
+      modalOnClose = null;
+      $('modal').close();
+      toast(t('checkOk'));
+    }
+  };
+  openModal(
+    h('h2', {}, t('checkTitle')),
+    h('p', {}, t(c.kind === 'words' ? 'checkWordsText' : 'checkCharsText')),
+    ...inputs.flatMap((input, i) => [h('label', { for: input.id }, label(c.items[i])), input]),
+    h('div', { class: 'row spread' },
+      h('button', { type: 'button', onclick: () => $('modal').close() }, t('notNow')),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', onclick: () => act(() => invoke('backup')) }, t('showAgain')),
+        h('button', { class: 'primary', type: 'button', onclick: verify }, t('check')))));
+  modalKind = 'check';
+  checkShown = JSON.stringify(c);
+  modalOnClose = () => invoke('cancel_backup_check').then(apply).catch(showError);
+  inputs[0].focus();
+}
+
 // --- settings and about ------------------------------------------------------------
 
 function openSettings() {
@@ -1052,6 +1114,12 @@ async function openAbout() {
 
 // --- start -------------------------------------------------------------------------
 
+$('modal').addEventListener('close', () => {
+  const then = modalOnClose;
+  modalOnClose = null;
+  modalKind = null;
+  if (then) then();
+});
 $('lang').addEventListener('click', () => act(() => invoke('set_language', { language: lang === 'es' ? 'en' : 'es' })));
 $('open-settings').addEventListener('click', () => view && openSettings());
 $('open-about').addEventListener('click', () => openAbout().catch(showError));

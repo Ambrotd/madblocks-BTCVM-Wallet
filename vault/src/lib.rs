@@ -1,5 +1,7 @@
 //! The wallet key's vault.
 //!
+//! It keeps a private key or, for wallets made since recovery phrases, the
+//! phrase's entropy, from which the key is derived (see the core's `seed`).
 //! The key is secp256k1, which neither the TPM nor Windows Hello can hold
 //! directly. So it lives in a file, encrypted with a key that only a Windows
 //! Hello signature produces. A Windows Hello key, which the TPM holds and
@@ -23,7 +25,7 @@ mod sealed;
 pub use hello::WindowsHello;
 pub use sealed::Sealed;
 
-use btcvm_wallet_core::{Key, MAINNET};
+use btcvm_wallet_core::{Key, MAINNET, seed};
 use rand_core::{OsRng, RngCore};
 use std::fs;
 use std::io::Write;
@@ -80,6 +82,74 @@ impl std::fmt::Display for VaultError {
 }
 
 impl std::error::Error for VaultError {}
+
+/// What a vault keeps: a private key, or a recovery phrase's entropy, whose
+/// key is derived at m/84'/0'/0'/0/0.
+pub enum Secret {
+    Key(Key),
+    Phrase(Zeroizing<Vec<u8>>),
+}
+
+impl Secret {
+    /// A new twelve-word phrase.
+    pub fn new_phrase() -> Secret {
+        Secret::Phrase(Zeroizing::new(seed::new_entropy().to_vec()))
+    }
+
+    /// Reads a backup the user pasted: a recovery phrase, or a key (a
+    /// compressed-key WIF or 64 hex digits).
+    pub fn parse(text: &str) -> Result<Secret, btcvm_wallet_core::Error> {
+        if seed::looks_like_words(text) {
+            Ok(Secret::Phrase(seed::parse_words(text)?))
+        } else {
+            Ok(Secret::Key(Key::parse(text)?))
+        }
+    }
+
+    /// The key it is, or makes.
+    pub fn key(&self) -> Result<Key, btcvm_wallet_core::Error> {
+        match self {
+            Secret::Key(k) => Key::from_bytes(k.bytes()),
+            Secret::Phrase(entropy) => seed::key_from_entropy(entropy),
+        }
+    }
+
+    /// The words, for a phrase.
+    pub fn words(&self) -> Option<Zeroizing<String>> {
+        match self {
+            Secret::Key(_) => None,
+            Secret::Phrase(entropy) => seed::words(entropy).ok(),
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            Secret::Key(_) => sealed::KEY,
+            Secret::Phrase(_) => sealed::BIP39,
+        }
+    }
+
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Secret::Key(k) => &k.bytes()[..],
+            Secret::Phrase(entropy) => entropy,
+        }
+    }
+}
+
+impl From<Key> for Secret {
+    fn from(key: Key) -> Secret {
+        Secret::Key(key)
+    }
+}
+
+/// A gate key, as a vault names it: wallets can share one, each vault still
+/// needing its own signature (of its own challenge) to open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GateKey {
+    pub credential: String,
+    pub public_key: Vec<u8>,
+}
 
 /// What unlocks a vault: a key that signs only with the user present, held
 /// where it can't be copied, and signing a message the same way every time.
@@ -144,13 +214,34 @@ impl<G: Gate> Vault<G> {
         Ok(self.read(&self.file())?.address)
     }
 
-    /// Stores a new wallet's key, under a new Windows Hello key.
-    pub fn store(&self, key: &Key) -> Result<(), VaultError> {
+    /// Stores a new wallet's secret under a new Windows Hello key: Windows
+    /// Hello asks twice, to make the key and to sign with it.
+    pub fn store(&self, secret: &Secret) -> Result<(), VaultError> {
+        self.store_under(secret, None)
+    }
+
+    /// Stores a new wallet's secret under another vault's Windows Hello key:
+    /// Windows Hello asks once.
+    pub fn store_with(&self, secret: &Secret, gate_key: &GateKey) -> Result<(), VaultError> {
+        self.store_under(secret, Some(gate_key))
+    }
+
+    fn store_under(&self, secret: &Secret, gate_key: Option<&GateKey>) -> Result<(), VaultError> {
         if self.has_key() {
             return Err(VaultError::Exists);
         }
         let file = self.file();
-        self.seal_into(key, &file)
+        self.seal_into(secret, &file, gate_key)
+    }
+
+    /// The Windows Hello key this vault is sealed under, read without
+    /// unlocking.
+    pub fn gate_key(&self) -> Result<GateKey, VaultError> {
+        let sealed = self.read(&self.file())?;
+        Ok(GateKey {
+            public_key: sealed.bytes("public key", &sealed.public_key)?,
+            credential: sealed.credential,
+        })
     }
 
     /// Whether the vault's gate key is certified to be in hardware (a TPM).
@@ -163,6 +254,11 @@ impl<G: Gate> Vault<G> {
     /// Decrypts the key, asking for Windows Hello. The key must be the one
     /// the vault says it holds.
     pub fn unlock(&self) -> Result<Key, VaultError> {
+        self.unlock_secret()?.key().map_err(corrupt)
+    }
+
+    /// Decrypts what the vault keeps, for a backup, asking for Windows Hello.
+    pub fn unlock_secret(&self) -> Result<Secret, VaultError> {
         let sealed = self.read(&self.file())?;
         self.open(&sealed)
     }
@@ -170,10 +266,14 @@ impl<G: Gate> Vault<G> {
     /// Replaces a vault that can't be opened any more with `key`, from the
     /// backup, under a new Windows Hello key. The old file is kept beside it,
     /// in case the key can still be recovered from it some other way.
-    pub fn restore(&self, key: &Key) -> Result<(), VaultError> {
+    pub fn restore(&self, secret: &Secret) -> Result<(), VaultError> {
         // When the old file can still be read, the backup must be its key.
         if let Ok(old) = self.read(&self.file()) {
-            let restored = key.destination().address(&MAINNET);
+            let restored = secret
+                .key()
+                .map_err(corrupt)?
+                .destination()
+                .address(&MAINNET);
             if restored != old.address {
                 return Err(VaultError::Other(format!(
                     "that key is for {restored}, not this wallet ({}); remove the wallet first to use a different key",
@@ -182,7 +282,7 @@ impl<G: Gate> Vault<G> {
             }
         }
         let staged = self.staged();
-        self.seal_into(key, &staged)?;
+        self.seal_into(secret, &staged, None)?;
         if self.has_key() {
             self.move_aside("unusable")?;
         }
@@ -190,13 +290,18 @@ impl<G: Gate> Vault<G> {
     }
 
     /// Removes the wallet from this PC: unlocks it first, so only its owner
-    /// can, then deletes the file and its Windows Hello key. Without a
-    /// backup, its coins are gone.
-    pub fn remove(&self) -> Result<(), VaultError> {
+    /// can, then deletes the file, and its Windows Hello key unless another
+    /// vault shares it (`keep_gate_key`). Without a backup, its coins are
+    /// gone.
+    pub fn remove(&self, keep_gate_key: bool) -> Result<(), VaultError> {
         let sealed = self.read(&self.file())?;
         self.open(&sealed)?;
         fs::remove_file(self.file()).map_err(io)?;
-        self.gate.delete(&sealed.credential)
+        if keep_gate_key {
+            Ok(())
+        } else {
+            self.gate.delete(&sealed.credential)
+        }
     }
 
     /// Takes a vault that can't be opened off the wallet without deleting
@@ -210,21 +315,36 @@ impl<G: Gate> Vault<G> {
 
     // --- internals -------------------------------------------------------
 
-    /// Seals `key` into `path` under a new gate key, then reads it back and
-    /// opens it with the key just derived (no second prompt) before calling
-    /// it done.
-    fn seal_into(&self, key: &Key, path: &Path) -> Result<(), VaultError> {
+    /// Seals `secret` into `path` under `gate_key`, or a new one, then reads
+    /// it back and opens it with the key just derived (no further prompt)
+    /// before calling it done.
+    fn seal_into(
+        &self,
+        secret: &Secret,
+        path: &Path,
+        gate_key: Option<&GateKey>,
+    ) -> Result<(), VaultError> {
         fs::create_dir_all(&self.dir).map_err(io)?;
-        let mut id = [0u8; 8];
-        OsRng.fill_bytes(&mut id);
-        // Letters, digits and hyphens: Windows Hello refuses a name with "/".
-        let credential = format!("madblocks-btcvm-wallet-{}", hex::encode(id));
-        let public_key = self.gate.create(&credential)?;
+        let address = secret
+            .key()
+            .map_err(corrupt)?
+            .destination()
+            .address(&MAINNET);
+        let (credential, public_key, made) = match gate_key {
+            Some(g) => (g.credential.clone(), g.public_key.clone(), false),
+            None => {
+                let mut id = [0u8; 8];
+                OsRng.fill_bytes(&mut id);
+                // Letters, digits and hyphens: Windows Hello refuses "/".
+                let credential = format!("madblocks-btcvm-wallet-{}", hex::encode(id));
+                let public_key = self.gate.create(&credential)?;
+                (credential, public_key, true)
+            }
+        };
         let result = (|| {
             let (challenge, salt) = sealed::fresh_challenge();
             let signature = self.gate.sign(&credential, &challenge, &public_key)?;
             let aes_key = sealed::derive(&signature, &salt);
-            let address = key.destination().address(&MAINNET);
             let sealed = Sealed::seal(
                 self.gate.kind(),
                 &credential,
@@ -232,7 +352,8 @@ impl<G: Gate> Vault<G> {
                 &challenge,
                 &salt,
                 &aes_key,
-                key.bytes(),
+                secret.kind(),
+                secret.bytes(),
                 &address,
             );
             write_atomically(
@@ -240,7 +361,7 @@ impl<G: Gate> Vault<G> {
                 &serde_json::to_vec_pretty(&sealed).expect("serializes"),
             )?;
             let back = self.read(path)?;
-            if back != sealed || *back.open(&aes_key)? != *key.bytes() {
+            if back != sealed || *back.open(&aes_key)? != *secret.bytes() {
                 let _ = fs::remove_file(path);
                 return Err(VaultError::Other(
                     "the vault didn't read back the same; nothing was stored".into(),
@@ -248,13 +369,13 @@ impl<G: Gate> Vault<G> {
             }
             Ok(())
         })();
-        if result.is_err() {
+        if result.is_err() && made {
             let _ = self.gate.delete(&credential);
         }
         result
     }
 
-    fn open(&self, sealed: &Sealed) -> Result<Key, VaultError> {
+    fn open(&self, sealed: &Sealed) -> Result<Secret, VaultError> {
         if sealed.gate != self.gate.kind() {
             return Err(VaultError::Corrupt(format!(
                 "it is unlocked by {}, not {}",
@@ -268,15 +389,23 @@ impl<G: Gate> Vault<G> {
         let signature = self
             .gate
             .sign(&sealed.credential, &challenge, &public_key)?;
-        let secret = sealed.open(&sealed::derive(&signature, &salt))?;
-        let key = Key::from_bytes(&secret[..])
-            .map_err(|e| VaultError::Corrupt(e.message().to_string()))?;
-        if key.destination().address(&MAINNET) != sealed.address {
+        let plain = sealed.open(&sealed::derive(&signature, &salt))?;
+        let secret = match sealed.kind() {
+            sealed::KEY => Secret::Key(Key::from_bytes(&plain[..]).map_err(corrupt)?),
+            _ => Secret::Phrase(plain),
+        };
+        if secret
+            .key()
+            .map_err(corrupt)?
+            .destination()
+            .address(&MAINNET)
+            != sealed.address
+        {
             return Err(VaultError::Corrupt(
                 "the key inside isn't the wallet's address".into(),
             ));
         }
-        Ok(key)
+        Ok(secret)
     }
 
     fn read(&self, path: &Path) -> Result<Sealed, VaultError> {
@@ -323,6 +452,10 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), VaultError> {
     f.sync_all().map_err(io)?;
     drop(f);
     fs::rename(&tmp, path).map_err(io)
+}
+
+fn corrupt(e: btcvm_wallet_core::Error) -> VaultError {
+    VaultError::Corrupt(e.message().to_string())
 }
 
 fn io(e: std::io::Error) -> VaultError {

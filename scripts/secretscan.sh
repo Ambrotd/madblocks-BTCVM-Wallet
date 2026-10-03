@@ -6,12 +6,13 @@
 #   scripts/secretscan.sh history   every line ever added, in every commit
 #                                   (pre-push and CI)
 #
-# The test vectors' keys are public, SHA-256 of labels like "btcvm vector
-# key 1", and are allowed by path below.
+# The test vectors' keys are public, and allowed by path below: SHA-256 of
+# labels like "btcvm vector key 1" in BTCVM's, and the keys BIPs 32, 39 and
+# 84 publish as their own test vectors.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-ALLOW='^core/tests/vectors/wallet-vectors\.json$'
+ALLOW='^core/tests/(vectors/(wallet|bip32|bip39)-vectors\.json|seed\.rs)$'
 B58='1-9A-HJ-NP-Za-km-z'
 # A WIF: 5… (51 characters) or K…/L… (52) on mainnet, 9…/c… on testnet.
 WIF="(^|[^$B58])[5KLc9][$B58]{50,51}([^$B58]|\$)"

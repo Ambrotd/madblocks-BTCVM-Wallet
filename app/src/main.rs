@@ -27,7 +27,7 @@ use tauri_plugin_dialog::{
     DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
 };
 use tauri_plugin_opener::OpenerExt;
-use wallet::{Failure, Review, Sent, View, Wallet};
+use wallet::{BackupText, Failure, Review, Sent, View, Wallet};
 use zeroize::Zeroizing;
 
 type Shared = Arc<Wallet>;
@@ -72,6 +72,7 @@ fn failure(message: impl Into<String>) -> Failure {
 struct Texts {
     backup_title: &'static str,
     backup_body: &'static str,
+    phrase_body: &'static str,
     copy: &'static str,
     copied: &'static str,
     saved: &'static str,
@@ -87,7 +88,8 @@ struct Texts {
 fn texts(language: &str) -> Texts {
     if language == "es" {
         Texts {
-            backup_title: "Tu clave privada",
+            backup_title: "Tu copia de seguridad",
+            phrase_body: "Estas son las {n} palabras de tu cartera {wallet}:\n\n{words}\n\nApúntalas en papel, en orden, y guárdalas en un sitio seguro. Con ellas recuperas esta cartera aquí, o su dirección de Bitcoin en cualquier wallet compatible con BIP39 (Sparrow, Electrum, BlueWallet…). Quien las vea puede llevarse tus BTC: nunca las compartas ni les hagas fotos. Después te pediremos tres de ellas para comprobar la copia.\n\nLa misma clave en formato WIF, para la wallet web de BTCVM: {key}",
             backup_body: "Esta es la clave de la cartera {wallet} (WIF):\n\n{key}\n\nGuárdala en un gestor de contraseñas o escríbela en papel. Quien la vea puede llevarse tus BTC; nunca la compartas. Sin ella, si pierdes este PC o se restablece Windows Hello, perderás tus fondos.",
             copy: "Copiar la clave",
             copied: "Copiada. Se borrará del portapapeles en un minuto, y Windows no la guarda en el historial del portapapeles (Win+V) ni la sincroniza. Pégala ya en tu gestor de contraseñas.",
@@ -102,7 +104,8 @@ fn texts(language: &str) -> Texts {
         }
     } else {
         Texts {
-            backup_title: "Your private key",
+            backup_title: "Your backup",
+            phrase_body: "These are the {n} words of your wallet {wallet}:\n\n{words}\n\nWrite them on paper, in order, and keep them somewhere safe. They restore this wallet here, or its Bitcoin address in any BIP39 wallet (Sparrow, Electrum, BlueWallet…). Anyone who sees them can take your BTC: never share them or take photos of them. Next you'll be asked for three of them, to check your backup.\n\nThe same key as a WIF, for BTCVM's web wallet: {key}",
             backup_body: "This is the key of wallet {wallet} (WIF):\n\n{key}\n\nKeep it in a password manager or write it on paper. Anyone who sees it can take your BTC; never share it. Without it, if you lose this PC or Windows Hello is reset, your funds are gone.",
             copy: "Copy the key",
             copied: "Copied. It will be cleared from the clipboard in a minute, and Windows keeps it out of clipboard history (Win+V) and cloud sync. Paste it into your password manager now.",
@@ -118,19 +121,44 @@ fn texts(language: &str) -> Texts {
     }
 }
 
-/// Shows the key of `wallet` (its name and address) in a native dialog,
-/// outside the web view, and says whether the user saved it. "Copy" puts it
-/// on the clipboard the way password managers do (see `clip`) and shows the
-/// dialog again.
-fn show_backup(app: &AppHandle, language: &str, wallet: &str, wif: &str) -> bool {
+/// The words numbered, four to a line.
+fn numbered(words: &str) -> Zeroizing<String> {
+    let mut out = Zeroizing::new(String::new());
+    for (i, word) in words.split(' ').enumerate() {
+        if i > 0 {
+            out.push_str(if i % 4 == 0 { "\n" } else { "     " });
+        }
+        out.push_str(&format!("{}. {word}", i + 1));
+    }
+    out
+}
+
+/// Shows the backup of `wallet` (its name and address) in a native dialog,
+/// outside the web view, and says whether the user saved it: the recovery
+/// phrase when it has one, else the key. "Copy" puts it on the clipboard the
+/// way password managers do (see `clip`) and shows the dialog again.
+fn show_backup(app: &AppHandle, language: &str, wallet: &str, backup: &BackupText) -> bool {
     let t = texts(language);
     let mut note = "";
+    let text = match &backup.words {
+        Some(words) => Zeroizing::new(
+            t.phrase_body
+                .replace("{n}", &words.split(' ').count().to_string())
+                .replace("{wallet}", wallet)
+                .replace("{words}", &numbered(words))
+                .replace("{key}", &backup.wif),
+        ),
+        None => Zeroizing::new(
+            t.backup_body
+                .replace("{wallet}", wallet)
+                .replace("{key}", &backup.wif),
+        ),
+    };
+    let copy: &str = backup.words.as_deref().map_or(&backup.wif, |w| w.as_str());
     loop {
         let body = Zeroizing::new(format!(
             "{}{}{note}",
-            t.backup_body
-                .replace("{wallet}", wallet)
-                .replace("{key}", wif),
+            text.as_str(),
             if note.is_empty() {
                 ""
             } else {
@@ -157,7 +185,7 @@ fn show_backup(app: &AppHandle, language: &str, wallet: &str, wif: &str) -> bool
             MessageDialogResult::Custom(label) if label == t.saved => return true,
             _ => return false,
         }
-        note = match clip::copy_secret(wif) {
+        note = match clip::copy_secret(copy) {
             Ok(()) => t.copied,
             Err(_) => "",
         };
@@ -230,8 +258,8 @@ async fn create_wallet(
         "creating a wallet",
         blocking(move || {
             let language = w.language();
-            w.create(&name, |wif| {
-                show_backup(&app, &language, &w.active_label(), wif)
+            w.create(&name, |backup| {
+                show_backup(&app, &language, &w.active_label(), backup)
             })
         })
         .await?,
@@ -245,7 +273,7 @@ async fn backup(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
         "backing up",
         blocking(move || {
             let language = w.language();
-            w.backup(|wif| show_backup(&app, &language, &w.active_label(), wif))
+            w.backup(|backup| show_backup(&app, &language, &w.active_label(), backup))
         })
         .await?,
     )
@@ -253,11 +281,9 @@ async fn backup(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
 
 /// Reads the key from the clipboard here, then clears the clipboard.
 fn take_key_from_clipboard(app: &AppHandle) -> Result<Zeroizing<String>, Failure> {
-    let text = Zeroizing::new(
-        app.clipboard()
-            .read_text()
-            .map_err(|_| failure("copy your key (WIF) first, then press the button"))?,
-    );
+    let text = Zeroizing::new(app.clipboard().read_text().map_err(|_| {
+        failure("copy your recovery phrase or your key (WIF) first, then press the button")
+    })?);
     let _ = app.clipboard().clear();
     Ok(text)
 }
@@ -465,6 +491,16 @@ async fn open_link(
 }
 
 #[tauri::command]
+async fn verify_backup(answers: Vec<String>, w: State<'_, Shared>) -> Result<View, Failure> {
+    logged("checking a backup", w.verify_backup(&answers))
+}
+
+#[tauri::command]
+async fn cancel_backup_check(w: State<'_, Shared>) -> Result<View, Failure> {
+    Ok(w.cancel_backup_check())
+}
+
+#[tauri::command]
 async fn receive_qr(w: State<'_, Shared>) -> Result<wallet::Qr, Failure> {
     w.receive_qr()
 }
@@ -625,6 +661,8 @@ fn main() {
             open_link,
             open_logs,
             receive_qr,
+            verify_backup,
+            cancel_backup_check,
             set_fiat,
             software_key_seen,
             export_history,

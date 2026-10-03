@@ -17,11 +17,11 @@ use btcvm_wallet_core::bridge::{self as peg, CheckSource, Pinned, peg_out_data};
 use btcvm_wallet_core::payment::MAX_FEE_RATE;
 use btcvm_wallet_core::tx::parse_tx;
 use btcvm_wallet_core::{
-    BridgeInfo, Chain, Coins, Destination, Key, Kind as AddressKind, MAINNET, Plan, Request,
+    BridgeInfo, Chain, Coins, Destination, Kind as AddressKind, MAINNET, Plan, Request,
     VerifiedBridge, about, decode_address, format_btc, max_payment, parse_btc, plan_deposit,
     plan_send, plan_withdrawal, sign_plan,
 };
-use btcvm_wallet_vault::{Vault, VaultError, WindowsHello};
+use btcvm_wallet_vault::{Secret, Vault, VaultError, WindowsHello};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -163,6 +163,42 @@ pub struct Wallet {
     notices: Mutex<Vec<Notice>>,
     /// Wallets whose key Windows was asked to certify since the app started.
     attestation_asked: Mutex<HashSet<String>>,
+    /// What the user is to type back from the backup just shown.
+    backup_check: Mutex<Option<BackupCheck>>,
+}
+
+/// A wallet's backup, to show outside the web view: its words, when it has
+/// a recovery phrase, and its key as a WIF.
+pub struct BackupText {
+    pub words: Option<Zeroizing<String>>,
+    pub wif: Zeroizing<String>,
+}
+
+impl BackupText {
+    fn of(secret: &Secret) -> Outcome<BackupText> {
+        Ok(BackupText {
+            words: secret.words(),
+            wif: secret.key()?.wif(&MAINNET),
+        })
+    }
+}
+
+/// Some words of a backup just shown, or some of its key's characters, for
+/// the user to type back. Kept here: the window learns only the positions.
+struct BackupCheck {
+    wallet: String,
+    words: bool,
+    /// 1-based, first and last.
+    items: Vec<(usize, usize)>,
+    expected: Zeroizing<Vec<String>>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct BackupCheckView {
+    /// "words" or "chars".
+    pub kind: &'static str,
+    /// 1-based, first and last.
+    pub items: Vec<[usize; 2]>,
 }
 
 #[derive(Default)]
@@ -242,6 +278,8 @@ pub struct View {
     pub hardware: Option<bool>,
     /// Windows can't certify it, and the user hasn't seen that yet.
     pub software_key_warning: bool,
+    /// The positions to type back from the active wallet's backup.
+    pub backup_check: Option<BackupCheckView>,
     pub updated: u64,
 }
 
@@ -485,6 +523,7 @@ impl Wallet {
             seen: Mutex::new(Seen::default()),
             notices: Mutex::new(Vec::new()),
             attestation_asked: Mutex::new(HashSet::new()),
+            backup_check: Mutex::new(None),
         };
         // Saves a single-wallet install in the new form at once.
         let settings = wallet.settings.guard().clone();
@@ -715,6 +754,15 @@ impl Wallet {
             fiat,
             hardware: record.hardware,
             software_key_warning: record.hardware == Some(false) && !record.software_key_seen,
+            backup_check: self
+                .backup_check
+                .guard()
+                .as_ref()
+                .filter(|c| Some(&c.wallet) == active.as_ref())
+                .map(|c| BackupCheckView {
+                    kind: if c.words { "words" } else { "chars" },
+                    items: c.items.iter().map(|&(a, b)| [a, b]).collect(),
+                }),
             updated: snap.updated,
         }
     }
@@ -1069,10 +1117,13 @@ impl Wallet {
 
     // --- wallets -------------------------------------------------------------
 
-    /// Adds a wallet holding `key` and makes it the active one.
-    fn adopt(&self, key: &Key, name: &str, made_here: bool) -> Outcome<String> {
+    /// Adds a wallet holding `secret` and makes it the active one. It shares
+    /// the other wallets' Windows Hello key, if there is one, so Windows
+    /// Hello asks once instead of twice; each vault still opens only with
+    /// its own signature.
+    fn adopt(&self, secret: &Secret, name: &str, made_here: bool) -> Outcome<String> {
         let name = wallet_name(name)?;
-        let address = key.destination().address(&MAINNET);
+        let address = secret.key()?.destination().address(&MAINNET);
         let ids: Vec<WalletRecord> = self.settings.guard().wallets.clone();
         if let Some(w) = ids
             .iter()
@@ -1090,7 +1141,15 @@ impl Wallet {
             rand_id(&mut raw);
             hex::encode(raw)
         };
-        self.vault(&id).store(key)?;
+        let vault = self.vault(&id);
+        match ids.iter().find_map(|w| self.vault(&w.id).gate_key().ok()) {
+            Some(shared) => match vault.store_with(secret, &shared) {
+                // Windows Hello lost it: a new one, then.
+                Err(VaultError::GateMissing) => vault.store(secret)?,
+                stored => stored?,
+            },
+            None => vault.store(secret)?,
+        }
         self.update(|s| {
             s.wallets.push(WalletRecord {
                 id: id.clone(),
@@ -1109,27 +1168,29 @@ impl Wallet {
         Ok(id)
     }
 
-    /// Makes a new wallet. `show_backup` shows the key outside the web view
-    /// and says whether the user saved it; until they do, nothing can be
-    /// received, as this PC holds the only copy.
-    pub fn create(&self, name: &str, show_backup: impl Fn(&str) -> bool) -> Outcome<View> {
-        let key = Key::generate();
-        let id = self.adopt(&key, name, true)?;
-        let saved = show_backup(&key.wif(&MAINNET));
-        drop(key);
-        if saved {
-            self.mark_backed_up(&id);
+    /// Makes a new wallet, with a twelve-word recovery phrase. `show_backup`
+    /// shows it outside the web view and says whether the user saved it;
+    /// then they type some words back. Until then nothing can be received,
+    /// as this PC holds the only copy.
+    pub fn create(&self, name: &str, show_backup: impl Fn(&BackupText) -> bool) -> Outcome<View> {
+        let secret = Secret::new_phrase();
+        let id = self.adopt(&secret, name, true)?;
+        let text = BackupText::of(&secret)?;
+        drop(secret);
+        if show_backup(&text) {
+            self.start_backup_check(&id, &text);
         }
+        drop(text);
         self.refresh();
         Ok(self.view())
     }
 
-    /// Adds a wallet from a key the user already has (their backup), from
-    /// the clipboard.
+    /// Adds a wallet from a backup the user already has, from the
+    /// clipboard: a recovery phrase, or a key.
     pub fn import(&self, name: &str, text: Zeroizing<String>) -> Outcome<View> {
-        let key = Key::parse(&text)?;
+        let secret = Secret::parse(&text)?;
         drop(text);
-        self.adopt(&key, name, false)?;
+        self.adopt(&secret, name, false)?;
         self.refresh();
         Ok(self.view())
     }
@@ -1139,6 +1200,7 @@ impl Wallet {
             return fail("there is no such wallet");
         }
         self.update(|s| s.active = Some(id.to_string()));
+        *self.backup_check.guard() = None;
         self.forget_views();
         self.refresh();
         Ok(self.view())
@@ -1153,16 +1215,87 @@ impl Wallet {
         Ok(self.view())
     }
 
-    /// Shows the active wallet's key for backup, after Windows Hello.
-    pub fn backup(&self, show_backup: impl Fn(&str) -> bool) -> Outcome<View> {
+    /// Shows the active wallet's backup after Windows Hello; when the user
+    /// says they saved it, they type some of it back.
+    pub fn backup(&self, show_backup: impl Fn(&BackupText) -> bool) -> Outcome<View> {
         let id = self
             .active_id()
             .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
-        let key = self.vault(&id).unlock()?;
-        if show_backup(&key.wif(&MAINNET)) {
-            self.mark_backed_up(&id);
+        let secret = self.vault(&id).unlock_secret()?;
+        let text = BackupText::of(&secret)?;
+        drop(secret);
+        if show_backup(&text) {
+            self.start_backup_check(&id, &text);
         }
         Ok(self.view())
+    }
+
+    /// Picks what to ask back: three of the words, or two groups of four of
+    /// the key's characters.
+    fn start_backup_check(&self, wallet: &str, text: &BackupText) {
+        let check = match &text.words {
+            Some(words) => {
+                let list: Vec<&str> = words.split(' ').collect();
+                let picked = pick(list.len(), 3);
+                BackupCheck {
+                    wallet: wallet.into(),
+                    words: true,
+                    items: picked.iter().map(|&i| (i + 1, i + 1)).collect(),
+                    expected: Zeroizing::new(picked.iter().map(|&i| list[i].to_string()).collect()),
+                }
+            }
+            None => {
+                let picked = pick(text.wif.len() / 4, 2);
+                BackupCheck {
+                    wallet: wallet.into(),
+                    words: false,
+                    items: picked.iter().map(|&k| (4 * k + 1, 4 * k + 4)).collect(),
+                    expected: Zeroizing::new(
+                        picked
+                            .iter()
+                            .map(|&k| text.wif[4 * k..4 * k + 4].to_string())
+                            .collect(),
+                    ),
+                }
+            }
+        };
+        *self.backup_check.guard() = Some(check);
+    }
+
+    /// Checks what the user typed back from their backup. Right, and the
+    /// wallet counts as backed up. A word may be its first four letters.
+    pub fn verify_backup(&self, answers: &[String]) -> Outcome<View> {
+        let wallet = {
+            let check = self.backup_check.guard();
+            let Some(c) = check.as_ref() else {
+                return fail("there is no backup to check");
+            };
+            let right = answers.len() == c.expected.len()
+                && c.expected.iter().zip(answers).all(|(want, got)| {
+                    let got = got.trim();
+                    if c.words {
+                        let got = got.to_ascii_lowercase();
+                        *want == got || (got.len() >= 4 && want.starts_with(got.as_str()))
+                    } else {
+                        want == got
+                    }
+                });
+            if !right {
+                return fail(
+                    "that doesn't match the backup you were shown: look at it again, or show it again",
+                );
+            }
+            c.wallet.clone()
+        };
+        *self.backup_check.guard() = None;
+        self.mark_backed_up(&wallet);
+        journal::info(&format!("wallet {wallet}'s backup was checked"));
+        Ok(self.view())
+    }
+
+    pub fn cancel_backup_check(&self) -> View {
+        *self.backup_check.guard() = None;
+        self.view()
     }
 
     /// Puts the active wallet back from its backup when its vault can't be
@@ -1171,9 +1304,9 @@ impl Wallet {
         let id = self
             .active_id()
             .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
-        let key = Key::parse(&text)?;
+        let secret = Secret::parse(&text)?;
         drop(text);
-        self.vault(&id).restore(&key)?;
+        self.vault(&id).restore(&secret)?;
         self.mark_backed_up(&id);
         self.refresh();
         Ok(self.view())
@@ -1189,7 +1322,21 @@ impl Wallet {
             return Ok(self.view());
         }
         let vault = self.vault(&id);
-        match vault.remove() {
+        // Its Windows Hello key stays if another wallet shares it.
+        let others: Vec<String> = self
+            .settings
+            .guard()
+            .wallets
+            .iter()
+            .filter(|w| w.id != id)
+            .map(|w| w.id.clone())
+            .collect();
+        let shared = vault.gate_key().ok().is_some_and(|g| {
+            others
+                .iter()
+                .any(|o| self.vault(o).gate_key().ok().as_ref() == Some(&g))
+        });
+        match vault.remove(shared) {
             Ok(()) => {}
             // A vault that can't be opened is set aside instead: the key may
             // still be recoverable from it some other way.
@@ -1204,6 +1351,7 @@ impl Wallet {
             s.wallets.retain(|w| w.id != id);
             s.active = s.wallets.first().map(|w| w.id.clone());
         });
+        *self.backup_check.guard() = None;
         if id != FIRST {
             // Its folder goes too, when nothing was set aside in it.
             let _ = std::fs::remove_dir(store::vault_dir(&self.dir, &id));
@@ -1912,6 +2060,21 @@ impl Wallet {
             _ => return fail("no such link"),
         })
     }
+}
+
+/// `count` different numbers below `n`, in order, from the system's
+/// generator.
+fn pick(n: usize, count: usize) -> Vec<usize> {
+    use rand_core::RngCore;
+    let mut picked: Vec<usize> = Vec::with_capacity(count);
+    while picked.len() < count.min(n) {
+        let i = rand_core::OsRng.next_u32() as usize % n;
+        if !picked.contains(&i) {
+            picked.push(i);
+        }
+    }
+    picked.sort_unstable();
+    picked
 }
 
 /// Random bytes for a wallet's id, from the system's generator.

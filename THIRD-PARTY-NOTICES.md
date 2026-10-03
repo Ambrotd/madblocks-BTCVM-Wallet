@@ -65,6 +65,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 [BIP 350](https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki) by Pieter Wuille, licensed under the
 2-clause BSD license.
 
+## BIP 39, BIP 32 and BIP 84
+
+`core/src/bip39-english.txt` is BIP 39's English word list, unchanged (SHA-256
+`2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`), from
+[BIP 39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) by Marek Palatinus, Pavol Rusnak,
+Aaron Voisine and Sean Bowe, licensed under the MIT License.
+`core/tests/vectors/bip39-vectors.json` holds the English vectors of
+[python-mnemonic](https://github.com/trezor/python-mnemonic) (MIT License, Copyright (c) 2013-2018 Pavol
+Rusnak). `core/tests/vectors/bip32-vectors.json` holds test vectors 1 to 4 of
+[BIP 32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki) by Pieter Wuille, licensed under the
+2-clause BSD license, and `core/tests/seed.rs` checks the first address of
+[BIP 84](https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki) (CC0-1.0).
+
 ## The Bitcoin logo
 
 `app/ui/bitcoin.svg`, and its purple copy `app/ui/btcvm.svg`, are the Bitcoin logo, which is in the
