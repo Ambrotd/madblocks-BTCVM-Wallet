@@ -43,6 +43,38 @@ impl Signers {
         Ok(s)
     }
 
+    /// The set a multisig witness script names: `OP_m <keys…> OP_n
+    /// OP_CHECKMULTISIG`, as [`Signers::witness_script`] makes it. A script
+    /// spent from a peg tells whose peg it was.
+    pub fn from_witness_script(script: &[u8]) -> Result<Signers> {
+        let (&first, rest) = script.split_first().ok_or_else(not_multisig)?;
+        let (&check, rest) = rest.split_last().ok_or_else(not_multisig)?;
+        let (&last, mut keys) = rest.split_last().ok_or_else(not_multisig)?;
+        if check != 0xae || !(0x51..=0x60).contains(&first) || !(0x51..=0x60).contains(&last) {
+            return Err(not_multisig());
+        }
+        let mut public_keys = Vec::new();
+        while let [33, key @ ..] = keys {
+            if key.len() < 33 {
+                return Err(not_multisig());
+            }
+            public_keys.push(hex::encode(&key[..33]));
+            keys = &key[33..];
+        }
+        if !keys.is_empty() || public_keys.len() != usize::from(last - 0x50) {
+            return Err(not_multisig());
+        }
+        let signers = Signers {
+            required: first - 0x50,
+            public_keys,
+        };
+        // Checked by building it again: keys valid, none twice, m ≤ n.
+        if signers.witness_script()? != script {
+            return Err(not_multisig());
+        }
+        Ok(signers)
+    }
+
     /// The peg: P2WSH of the witness script. The reserve on BTCVM and the
     /// locked BTC on Bitcoin share this one `bc1q…` address.
     pub fn peg(&self) -> Result<Destination> {
@@ -66,6 +98,10 @@ impl Signers {
     pub fn deposit_destination(&self, dest: &Destination) -> Result<Destination> {
         Destination::new(Kind::P2wsh, &sha256(&self.deposit_script(dest)?))
     }
+}
+
+fn not_multisig() -> Error {
+    Error::Invalid("not a signer set's multisig script".into())
 }
 
 /// Tags the OP_RETURN of a withdrawal (peg-out): the reserve pays the

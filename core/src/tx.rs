@@ -134,11 +134,15 @@ impl Tx {
 /// its outputs, and the bytes its id is the hash of.
 #[derive(Debug, Clone)]
 pub struct Parsed {
+    pub version: u32,
     pub inputs: Vec<(String, u32)>,
     /// Each input's sequence number: below 0xfffffffe, it signals that the
     /// transaction may be replaced (BIP 125).
     pub sequences: Vec<u32>,
     pub outputs: Vec<TxOut>,
+    /// Each input's witness stack; empty for one without.
+    pub witnesses: Vec<Vec<Vec<u8>>>,
+    pub lock_time: u32,
     stripped: Vec<u8>,
 }
 
@@ -183,11 +187,12 @@ pub fn parse_tx(raw: &[u8]) -> Result<Parsed> {
         });
     }
     let body_end = r.at;
+    let mut witnesses = vec![Vec::new(); inputs.len()];
     if segwit {
-        for _ in 0..inputs.len() {
+        for witness in &mut witnesses {
             for _ in 0..r.varint()? {
                 let item = r.varint()?;
-                r.take(item)?;
+                witness.push(r.take(item)?.to_vec());
             }
         }
     }
@@ -195,17 +200,64 @@ pub fn parse_tx(raw: &[u8]) -> Result<Parsed> {
     if r.at + 4 != raw.len() {
         return invalid("trailing bytes after the transaction");
     }
+    let lock_time = u32::from_le_bytes(raw[r.at..].try_into().expect("4 bytes"));
     let stripped = if segwit {
         [&raw[..4], &raw[body_start..body_end], &raw[r.at..]].concat()
     } else {
         raw.to_vec()
     };
     Ok(Parsed {
+        version: u32::from_le_bytes(raw[..4].try_into().expect("4 bytes")),
         inputs,
         sequences,
         outputs,
+        witnesses,
+        lock_time,
         stripped,
     })
+}
+
+/// BIP143's SIGHASH_ALL digest for input `index` of the transaction `raw`,
+/// spending `amount` under `script_code`: a P2WPKH input's `76a914…88ac`,
+/// or a P2WSH input's witness script (without OP_CODESEPARATOR).
+pub fn witness_sighash(
+    raw: &[u8],
+    index: usize,
+    script_code: &[u8],
+    amount: u64,
+) -> Result<[u8; 32]> {
+    let tx = parse_tx(raw)?;
+    if index >= tx.inputs.len() {
+        return invalid("no such input");
+    }
+    let outpoint = |(txid, vout): &(String, u32), out: &mut Vec<u8>| {
+        let mut id = hex::decode(txid).expect("parsed from bytes");
+        id.reverse();
+        out.extend_from_slice(&id);
+        out.extend_from_slice(&vout.to_le_bytes());
+    };
+    let mut prevouts = Vec::new();
+    for i in &tx.inputs {
+        outpoint(i, &mut prevouts);
+    }
+    let sequences: Vec<u8> = tx.sequences.iter().flat_map(|s| s.to_le_bytes()).collect();
+    let mut outputs = Vec::new();
+    for o in &tx.outputs {
+        output(o, &mut outputs);
+    }
+    let mut pre = Vec::new();
+    pre.extend_from_slice(&tx.version.to_le_bytes());
+    pre.extend_from_slice(&sha256d(&prevouts));
+    pre.extend_from_slice(&sha256d(&sequences));
+    outpoint(&tx.inputs[index], &mut pre);
+    varint(script_code.len(), &mut pre);
+    pre.extend_from_slice(script_code);
+    pre.extend_from_slice(&amount.to_le_bytes());
+    pre.extend_from_slice(&tx.sequences[index].to_le_bytes());
+    pre.extend_from_slice(&sha256d(&outputs));
+    pre.extend_from_slice(&tx.lock_time.to_le_bytes());
+    pre.extend_from_slice(&1u32.to_le_bytes()); // SIGHASH_ALL
+    Ok(sha256d(&pre))
 }
 
 /// A transaction's id, from its bytes.

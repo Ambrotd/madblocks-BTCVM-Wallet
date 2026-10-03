@@ -55,8 +55,9 @@ short:
   redirect a payment.
 - **The trade-off: if BTCVM's signers change, deposits and withdrawals pause.** A rotation by BTCVM's
   operators looks the same as a hijacked server, so the wallet stops moving coins between the chains until
-  it's updated with the new set. It warns you, showing the old and new peg addresses and where to check them
-  (a Bitcoin explorer, metalbtc.com, madblocks). Sends keep working. This is deliberate.
+  it finds the old signers' own move of the funds to the new set and verifies their signatures; then it
+  updates itself. Until then it warns you, showing the old and new peg addresses and where to check them (a
+  Bitcoin explorer, metalbtc.com, madblocks). Sends keep working. This is deliberate.
 - **The key stays on your PC**, encrypted to a Windows Hello key held by the TPM and decrypted only to
   sign. It never reaches the app's web view: a key shown for backup appears in a native dialog, and one
   being imported is read from the clipboard by the app, which then clears it.

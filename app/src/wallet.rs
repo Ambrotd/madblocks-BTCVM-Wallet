@@ -11,10 +11,14 @@ use crate::api::{
     AddressView, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry, FeeEstimates, Prices,
 };
 use crate::journal;
-use crate::store::{self, FIRST, Outgoing, Settings, WalletRecord, Withdrawal};
+use crate::store::{self, FIRST, Outgoing, RotationProof, Settings, WalletRecord, Withdrawal};
 use btcvm_wallet_core::book::{self, Contact};
-use btcvm_wallet_core::bridge::{self as peg, CheckSource, Pinned, peg_out_data};
+use btcvm_wallet_core::bridge::{
+    self as peg, CheckSource, Pinned, SignerChange, Signers, peg_out_data,
+};
+use btcvm_wallet_core::encoding::sha256;
 use btcvm_wallet_core::payment::MAX_FEE_RATE;
+use btcvm_wallet_core::rotation;
 use btcvm_wallet_core::tx::parse_tx;
 use btcvm_wallet_core::{
     BridgeInfo, Chain, Coins, Destination, Kind as AddressKind, MAINNET, Plan, Request,
@@ -167,6 +171,11 @@ pub struct Wallet {
     attestation_asked: Mutex<HashSet<String>>,
     /// What the user is to type back from the backup just shown.
     backup_check: Mutex<Option<BackupCheck>>,
+    /// The peg's signer set the wallet trusts: the one built in, or the last
+    /// it followed by a checked rotation.
+    trusted: Mutex<Signers>,
+    /// When the wallet last looked for the move behind a signer change.
+    rotation_checked: Mutex<u64>,
 }
 
 /// A wallet's backup, to show outside the web view: its words, when it has
@@ -335,6 +344,18 @@ pub struct BridgeView {
     pub locked: Option<String>,
     pub circulating: Option<String>,
     pub bitcoin_syncing: bool,
+    /// The last rotation the wallet followed, until the user has seen it.
+    pub rotation: Option<RotationView>,
+}
+
+/// A rotation the wallet checked by itself.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationView {
+    pub from_peg: String,
+    pub to_peg: String,
+    pub chain: String,
+    pub txid: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -455,6 +476,33 @@ fn balance(v: Option<&AddressView>) -> Option<Balance> {
     })
 }
 
+/// The signer set to trust: the one built into the wallet, followed through
+/// each stored rotation that still checks out. A proof that doesn't (edited,
+/// or for another lineage) stops the walk there.
+fn replay(rotations: &[RotationProof]) -> Signers {
+    let mut current = Pinned::mainnet().signers;
+    for p in rotations {
+        let prev: HashMap<String, String> = p.prev.clone().into_iter().collect();
+        let checked = p.from == current
+            && hex::decode(&p.tx)
+                .ok()
+                .is_some_and(|raw| rotation::verify_move(&current, &p.to, &raw, &prev).is_ok());
+        if !checked {
+            journal::warn("a stored rotation of the signers doesn't check out; it is ignored");
+            break;
+        }
+        current = p.to.clone();
+    }
+    current
+}
+
+fn rotation_txid(p: &RotationProof) -> String {
+    hex::decode(&p.tx)
+        .ok()
+        .and_then(|raw| btcvm_wallet_core::tx::txid(&raw).ok())
+        .unwrap_or_default()
+}
+
 /// The currency to show values in: the user's choice, or by language.
 fn fiat_choice(settings: &Settings, language: &str) -> &'static str {
     match settings.fiat.as_deref() {
@@ -513,6 +561,7 @@ impl Wallet {
             .clone()
             .unwrap_or_else(|| DEFAULT_SERVER.into());
         let language = settings.language.clone().unwrap_or_else(|| language.into());
+        let trusted = replay(&settings.rotations);
         let wallet = Wallet {
             dir,
             settings: Mutex::new(settings),
@@ -528,6 +577,8 @@ impl Wallet {
             notices: Mutex::new(Vec::new()),
             attestation_asked: Mutex::new(HashSet::new()),
             backup_check: Mutex::new(None),
+            trusted: Mutex::new(trusted),
+            rotation_checked: Mutex::new(0),
         };
         // Saves a single-wallet install in the new form at once.
         let settings = wallet.settings.guard().clone();
@@ -813,7 +864,24 @@ impl Wallet {
             locked: status.audit.as_ref().map(|a| a.locked.clone()),
             circulating: status.audit.as_ref().map(|a| a.circulating.clone()),
             bitcoin_syncing: status.bitcoin_sync.is_some_and(|s| s.syncing),
+            rotation: self.rotation_view(),
         }
+    }
+
+    /// The last rotation followed, unless the user has seen it.
+    fn rotation_view(&self) -> Option<RotationView> {
+        let settings = self.settings.guard();
+        let last = settings.rotations.last()?;
+        let to_peg = last.to.peg().ok()?.address(&MAINNET);
+        if settings.rotation_seen.as_deref() == Some(to_peg.as_str()) {
+            return None;
+        }
+        Some(RotationView {
+            from_peg: last.from.peg().ok()?.address(&MAINNET),
+            to_peg,
+            chain: last.chain.clone(),
+            txid: rotation_txid(last),
+        })
     }
 
     // --- refreshing ------------------------------------------------------
@@ -876,10 +944,22 @@ impl Wallet {
                 return;
             }
         };
-        let (bridge, bridge_error) = match peg::verify(&info, &Pinned::mainnet()) {
+        let (mut bridge, mut bridge_error) = match peg::verify(&info, &self.pinned()) {
             Ok(b) => (Some(b), None),
             Err(e) => (None, Some(Failure::from(e))),
         };
+        // A signer change: look for the old signers' own move to the new set,
+        // every ten minutes, and follow it if it checks out.
+        let change = bridge.as_ref().and_then(|b| b.signer_change.clone());
+        if let Some(change) = change {
+            let due = now().saturating_sub(*self.rotation_checked.guard()) >= 600;
+            if due && self.follow_rotation(&api, &change) {
+                (bridge, bridge_error) = match peg::verify(&info, &self.pinned()) {
+                    Ok(b) => (Some(b), None),
+                    Err(e) => (None, Some(Failure::from(e))),
+                };
+            }
+        }
         let status = api.status().ok();
         let active = self.active_id();
         let mut snap = Snapshot {
@@ -1103,6 +1183,188 @@ impl Wallet {
         if changed {
             self.update_record(id, |r| r.outgoing.retain(|o| keep(o)));
         }
+    }
+
+    /// The signer set the wallet trusts, pinned as the built-in one is.
+    fn pinned(&self) -> Pinned {
+        Pinned {
+            signers: self.trusted.guard().clone(),
+            ..Pinned::mainnet()
+        }
+    }
+
+    /// Looks for the move by which the trusted signers handed the peg to the
+    /// set the bridge reports, checks it, and follows it: on BTCVM, where
+    /// the reserve moves first, then on Bitcoin. Up to three rotations are
+    /// followed, for a wallet that missed some. True when it followed.
+    fn follow_rotation(&self, api: &Bridge, change: &SignerChange) -> bool {
+        *self.rotation_checked.guard() = now();
+        let mut from = change.trusted.clone();
+        let mut proofs = Vec::new();
+        for _ in 0..3 {
+            let Some(proof) = self.find_move(api, &from, &change.reported) else {
+                journal::warn(&format!(
+                    "no checked move yet from the signers of {} to those of {}",
+                    change.trusted_peg.address(&MAINNET),
+                    change.reported_peg.address(&MAINNET)
+                ));
+                return false;
+            };
+            from = proof.to.clone();
+            proofs.push(proof);
+            if from == change.reported {
+                break;
+            }
+        }
+        if from != change.reported {
+            return false;
+        }
+        for p in &proofs {
+            journal::info(&format!(
+                "followed a rotation of the peg's signers: {} on {}",
+                rotation_txid(p),
+                p.chain
+            ));
+        }
+        self.update(|s| s.rotations.extend(proofs));
+        *self.trusted.guard() = from;
+        true
+    }
+
+    /// A checked move from `from`: to `target` if one is found, or else to
+    /// the next set in between, whose keys a later spend reveals.
+    fn find_move(&self, api: &Bridge, from: &Signers, target: &Signers) -> Option<RotationProof> {
+        let peg = from.peg().ok()?.address(&MAINNET);
+        let target_hash = sha256(&target.witness_script().ok()?);
+        for (chain, txid) in self.move_candidates(api, &peg) {
+            let Ok(hex) = api.raw_tx(chain, &txid) else {
+                continue;
+            };
+            let Ok(raw) = hex::decode(hex.trim()) else {
+                continue;
+            };
+            let Some(tagged) = rotation::migrate_target(&raw) else {
+                continue;
+            };
+            let to = if tagged == target_hash {
+                target.clone()
+            } else {
+                match self.revealed_set(api, chain, &tagged) {
+                    Some(set) => set,
+                    None => continue,
+                }
+            };
+            if let Some(proof) = self.check_move(api, chain, from, &to, &raw) {
+                return Some(proof);
+            }
+        }
+        None
+    }
+
+    /// Transactions that may be moves from the peg `address`: its latest
+    /// spends on BTCVM, then its latest transactions on Bitcoin with a BVMM
+    /// tag.
+    fn move_candidates(&self, api: &Bridge, address: &str) -> Vec<(Chain, String)> {
+        let mut out = Vec::new();
+        if let Ok(view) = api.address(Chain::Btcvm, address) {
+            out.extend(
+                view.history
+                    .iter()
+                    .filter(|h| h.net.starts_with('-'))
+                    .take(40)
+                    .map(|h| (Chain::Btcvm, h.txid.clone())),
+            );
+        }
+        let tag = format!("6a24{}", hex::encode(rotation::MIGRATE_TAG));
+        if let Ok(txs) = api.bitcoin_address_txs(address) {
+            out.extend(
+                txs.iter()
+                    .filter(|t| t.vout.iter().any(|o| o.scriptpubkey.starts_with(&tag)))
+                    .map(|t| (Chain::Bitcoin, t.txid.clone())),
+            );
+        }
+        out
+    }
+
+    /// The set whose peg has the P2WSH `program`, from a spend of it, whose
+    /// witness reveals its script.
+    fn revealed_set(&self, api: &Bridge, chain: Chain, program: &[u8; 32]) -> Option<Signers> {
+        let address = Destination::new(AddressKind::P2wsh, program)
+            .ok()?
+            .address(&MAINNET);
+        let txids: Vec<String> = match chain {
+            Chain::Btcvm => api
+                .address(Chain::Btcvm, &address)
+                .ok()?
+                .history
+                .iter()
+                .filter(|h| h.net.starts_with('-'))
+                .take(20)
+                .map(|h| h.txid.clone())
+                .collect(),
+            Chain::Bitcoin => api
+                .bitcoin_address_txs(&address)
+                .ok()?
+                .into_iter()
+                .take(20)
+                .map(|t| t.txid)
+                .collect(),
+        };
+        txids.iter().find_map(|txid| {
+            let raw = hex::decode(api.raw_tx(chain, txid).ok()?.trim()).ok()?;
+            rotation::signers_spent(&raw, program)
+        })
+    }
+
+    /// Checks `raw` as a move from `from` to `to`, with the transaction that
+    /// made each of its first few coins in turn.
+    fn check_move(
+        &self,
+        api: &Bridge,
+        chain: Chain,
+        from: &Signers,
+        to: &Signers,
+        raw: &[u8],
+    ) -> Option<RotationProof> {
+        let parsed = parse_tx(raw).ok()?;
+        for (prev_txid, _) in parsed.inputs.iter().take(3) {
+            let Ok(prev) = api.raw_tx(chain, prev_txid) else {
+                continue;
+            };
+            let prev = HashMap::from([(prev_txid.clone(), prev.trim().to_string())]);
+            if rotation::verify_move(from, to, raw, &prev).is_ok() {
+                return Some(RotationProof {
+                    chain: chain_name(chain).into(),
+                    from: from.clone(),
+                    to: to.clone(),
+                    tx: hex::encode(raw),
+                    prev: prev.into_iter().collect(),
+                    verified: now(),
+                });
+            }
+        }
+        None
+    }
+
+    /// Checks again now for the move behind a signer change, at the user's
+    /// request.
+    pub fn check_rotation_now(&self) -> View {
+        *self.rotation_checked.guard() = 0;
+        self.refresh();
+        self.view()
+    }
+
+    /// The user has seen the rotation the wallet followed.
+    pub fn rotation_seen(&self) -> View {
+        let last = self
+            .settings
+            .guard()
+            .rotations
+            .last()
+            .and_then(|p| p.to.peg().ok())
+            .map(|d| d.address(&MAINNET));
+        self.update(|s| s.rotation_seen = last);
+        self.view()
     }
 
     /// The signer change to warn about once, if one is new.
@@ -2192,6 +2454,25 @@ mod tests {
             credit_txid: credit_txid.then(|| "bb".repeat(32)),
             refund_txid: None,
         }
+    }
+
+    #[test]
+    fn a_stored_rotation_that_doesnt_check_out_is_ignored() {
+        let pinned = Pinned::mainnet().signers;
+        let other = Signers {
+            required: 1,
+            public_keys: vec![pinned.public_keys[0].clone()],
+        };
+        let forged = RotationProof {
+            chain: "btcvm".into(),
+            from: pinned.clone(),
+            to: other,
+            tx: "00".into(),
+            prev: Default::default(),
+            verified: 0,
+        };
+        assert_eq!(replay(&[]), pinned);
+        assert_eq!(replay(&[forged]), pinned);
     }
 
     #[test]

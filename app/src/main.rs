@@ -100,7 +100,7 @@ fn texts(language: &str) -> Texts {
             remove: "Quitar",
             cancel: "Cancelar",
             change_title: "Han cambiado los firmantes del puente",
-            change_body: "El puente informa de un conjunto de firmantes distinto del que esta wallet tiene fijado.\n\nAntes: {old}\nAhora: {new}\n\nAsí se ve una rotación planificada por los operadores de BTCVM, pero también un servidor secuestrado. Hasta actualizar la wallet con el nuevo conjunto, los depósitos y retiradas quedan en pausa; los envíos siguen funcionando.\n\nComprueba el cambio en un explorador de Bitcoin, en metalbtc.com y con madblocks. Tienes los enlaces en la ventana.",
+            change_body: "El puente informa de un conjunto de firmantes distinto del que esta wallet tiene fijado.\n\nAntes: {old}\nAhora: {new}\n\nAsí se ve una rotación planificada por los operadores de BTCVM, pero también un servidor secuestrado. Los depósitos y retiradas quedan en pausa hasta que la wallet encuentre el traslado de los fondos firmado por los firmantes antiguos y compruebe sus firmas; lo busca sola cada diez minutos. Los envíos siguen funcionando.\n\nMientras tanto, puedes comprobar el cambio en un explorador de Bitcoin, en metalbtc.com y con madblocks. Tienes los enlaces en la ventana.",
         }
     } else {
         Texts {
@@ -116,7 +116,7 @@ fn texts(language: &str) -> Texts {
             remove: "Remove",
             cancel: "Cancel",
             change_title: "The bridge's signers have changed",
-            change_body: "The bridge reports another signer set than the one pinned in this wallet.\n\nBefore: {old}\nNow: {new}\n\nThat is what a planned rotation by BTCVM's operators looks like, and also what a hijacked server would show. Until the wallet is updated with the new set, deposits and withdrawals are paused; sends still work.\n\nCheck the change on a Bitcoin explorer, at metalbtc.com and with madblocks. The links are in the window.",
+            change_body: "The bridge reports another signer set than the one pinned in this wallet.\n\nBefore: {old}\nNow: {new}\n\nThat is what a planned rotation by BTCVM's operators looks like, and also what a hijacked server would show. Deposits and withdrawals are paused until the wallet finds the old signers' signed move of the funds and checks their signatures; it looks for it every ten minutes. Sends still work.\n\nMeanwhile, you can check the change on a Bitcoin explorer, at metalbtc.com and with madblocks. The links are in the window.",
         }
     }
 }
@@ -504,6 +504,17 @@ async fn open_link(
 }
 
 #[tauri::command]
+async fn check_rotation(w: State<'_, Shared>) -> Result<View, Failure> {
+    let w = w.inner().clone();
+    blocking(move || w.check_rotation_now()).await
+}
+
+#[tauri::command]
+async fn rotation_seen(w: State<'_, Shared>) -> Result<View, Failure> {
+    Ok(w.rotation_seen())
+}
+
+#[tauri::command]
 async fn verify_backup(answers: Vec<String>, w: State<'_, Shared>) -> Result<View, Failure> {
     logged("checking a backup", w.verify_backup(&answers))
 }
@@ -675,6 +686,8 @@ fn main() {
             open_link,
             open_logs,
             receive_qr,
+            check_rotation,
+            rotation_seen,
             verify_backup,
             cancel_backup_check,
             set_fiat,

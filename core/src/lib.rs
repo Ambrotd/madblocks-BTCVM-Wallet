@@ -24,6 +24,7 @@ pub mod bridge;
 pub mod encoding;
 pub mod keys;
 pub mod payment;
+pub mod rotation;
 pub mod seed;
 pub mod tx;
 pub mod wallet;

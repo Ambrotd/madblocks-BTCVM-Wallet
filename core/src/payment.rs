@@ -522,7 +522,7 @@ pub fn describe_outputs(outputs: &[TxOut], own: &Destination, net: &Network) -> 
 }
 
 /// The data of an OP_RETURN carrying a single push, or None.
-fn op_return_data(script: &[u8]) -> Option<&[u8]> {
+pub(crate) fn op_return_data(script: &[u8]) -> Option<&[u8]> {
     match script {
         [0x6a, n, data @ ..] if usize::from(*n) < 0x4c && data.len() == usize::from(*n) => {
             Some(data)

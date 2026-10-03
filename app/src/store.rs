@@ -4,7 +4,9 @@
 //! the address book is checked again each time it is read.
 
 use btcvm_wallet_core::book::Contact;
+use btcvm_wallet_core::bridge::Signers;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -29,6 +31,11 @@ pub struct Settings {
     pub fiat: Option<String>,
     pub wallets: Vec<WalletRecord>,
     pub address_book: Vec<Contact>,
+    /// Rotations of the peg's signers the wallet checked, oldest first, from
+    /// the set built into it. Each is checked again at every start.
+    pub rotations: Vec<RotationProof>,
+    /// The new peg of the last rotation the user has seen announced.
+    pub rotation_seen: Option<String>,
 
     // Single-wallet versions kept these for their only wallet. They are read
     // once, moved into its record, and never written again.
@@ -62,6 +69,24 @@ pub struct WalletRecord {
     pub software_key_seen: bool,
     pub outgoing: Vec<Outgoing>,
     pub withdrawals: Vec<Withdrawal>,
+}
+
+/// A rotation of the peg's signers: a move of the old set's coins to the new
+/// set, signed by the old set (see the core's `rotation`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationProof {
+    /// "btcvm" or "bitcoin": where the move is.
+    pub chain: String,
+    pub from: Signers,
+    pub to: Signers,
+    /// The move, hex.
+    pub tx: String,
+    /// The transaction that made the coin whose signatures were checked,
+    /// hex, by txid.
+    pub prev: BTreeMap<String, String>,
+    /// Unix seconds.
+    pub verified: u64,
 }
 
 /// A payment a wallet sent, kept until it confirms: the coins it spends, so

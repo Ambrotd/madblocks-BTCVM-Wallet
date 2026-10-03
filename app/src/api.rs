@@ -91,6 +91,20 @@ pub struct FeeEstimates {
     pub minimum_fee: f64,
 }
 
+/// A transaction as mempool.space lists an address's: its id and output
+/// scripts, enough to spot a BVMM tag.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListedTx {
+    pub txid: String,
+    pub vout: Vec<ListedOut>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListedOut {
+    /// Hex.
+    pub scriptpubkey: String,
+}
+
 /// BTC's price in dollars and euros, from mempool.space.
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Prices {
@@ -260,6 +274,19 @@ impl Bridge {
         decode(
             self.agent
                 .get("https://mempool.space/api/v1/fees/recommended")
+                .call()
+                .map_err(network)?,
+        )
+    }
+
+    /// An address's latest transactions on Bitcoin, from mempool.space: to
+    /// find the old signers' move after a rotation. What they say is checked
+    /// by their signatures, not taken on trust.
+    pub fn bitcoin_address_txs(&self, address: &str) -> Result<Vec<ListedTx>, ApiError> {
+        check_address(address)?;
+        decode(
+            self.agent
+                .get(format!("https://mempool.space/api/address/{address}/txs"))
                 .call()
                 .map_err(network)?,
         )

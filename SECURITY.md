@@ -59,21 +59,32 @@ the address next to it, and the book is checked again each time it's read.
 ## The trade-off: a change of signers pauses deposits and withdrawals
 
 When BTCVM's operators rotate the signer set, the bridge starts reporting keys the wallet doesn't know, and
-a new peg address. A hijacked server would look exactly the same, and the wallet can't tell the two apart
-on its own. So, deliberately:
+a new peg address. A hijacked server would look exactly the same. What tells them apart is the old signers
+themselves: in a real rotation they move what they hold to the new set (`docs/ROTATION.md` and
+`cmd/btcvm/rotate.go` in btc-vm), in transactions they sign, each tagged `BVMM` with the hash of the new
+set's script. So, deliberately:
 
-- **Deposits and withdrawals pause** until the wallet is updated with the new set. Sends on Bitcoin and on
+- **Deposits and withdrawals pause** as soon as the bridge reports another set. Sends on Bitcoin and on
   BTCVM keep working, and paying either peg directly stays refused.
-- **The wallet warns you** as soon as it sees the change. It shows the old and new peg addresses and which
-  keys changed. It also links where to check them without relying on the bridge's server:
+- **The wallet looks for the old signers' move**, every ten minutes and when you ask: among the old peg's
+  latest spends on BTCVM (from the bridge) and its tagged transactions on Bitcoin (from mempool.space). It
+  follows a move only if the old set's m-of-n signatures on it verify, each SIGHASH_ALL, which commits them
+  to the tag naming the new set; the coin's value comes from the transaction that made it, checked against
+  its id. Neither server can forge that. Up to three rotations in a row are followed. Deposits and
+  withdrawals then resume with the new set, and the wallet tells you, with the move's transaction.
+- **Each move it followed is stored and checked again at every start**, from the set built into the
+  wallet, so editing the settings file can't swap in another set; a proof that doesn't check out is
+  ignored, and the wallet pauses again.
+- **Until it finds the move, the wallet warns you.** It shows the old and new peg addresses and which keys
+  changed, and links where to check them without relying on the bridge's server:
   - a Bitcoin explorer, where the BTC locked at the old peg should have moved to the new one, which only the
     old signers could have done;
   - BTCVM's rotation procedure (`docs/ROTATION.md` in btc-vm), and its docs and explorer at metalbtc.com,
     which are run by the same operators as the bridge;
   - madblocks, who publish each signer set they have verified with the wallet's updates.
 
-Verifying a rotation automatically, from the old keys' signatures on the transaction that moves the
-reserve, is planned.
+The old signers are trusted to sign only real rotations: that is the bridge's own trust model, since they
+can already move the locked BTC.
 
 ## Rules for the code
 

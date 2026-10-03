@@ -15,6 +15,9 @@
   --bad-bg: #fdecec;
   --bad-ink: #9f1d1d;
   --bad-line: #f2b8b8;
+  --ok-bg: #e9f9ef;
+  --ok-ink: #14532d;
+  --ok-line: #9be3b4;
   --radius: 14px;
   color-scheme: light dark;
 }
@@ -32,6 +35,9 @@
     --bad-bg: #2d1416;
     --bad-ink: #f4a3a3;
     --bad-line: #6a2a2e;
+    --ok-bg: #10261a;
+    --ok-ink: #a7f3c5;
+    --ok-line: #1f5135;
   }
 }
 
@@ -96,6 +102,7 @@ main { max-width: 980px; margin: 0 auto; padding: 20px 24px 40px; }
   color: var(--warn-ink);
 }
 .banner.bad { border-color: var(--bad-line); background: var(--bad-bg); color: var(--bad-ink); }
+.banner.ok { border-color: var(--ok-line); background: var(--ok-bg); color: var(--ok-ink); }
 .banner h3 { margin: 0 0 6px; font-size: 15px; }
 .banner p { margin: 6px 0; }
 .banner .row { margin-top: 10px; }

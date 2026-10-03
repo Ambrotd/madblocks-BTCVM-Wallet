@@ -52,7 +52,7 @@ const STRINGS = {
     bannerInsolvent: 'La auditoría del puente indica que el peg no está totalmente cubierto. No muevas fondos entre cadenas.',
     bannerBackup: 'Haz la copia de seguridad de tu clave', bannerBackupText: 'Hasta entonces no se muestra tu dirección: este PC tiene la única copia de la clave.', backupNow: 'Hacer copia (Windows Hello)',
     changeTitle: 'Han cambiado los firmantes del puente',
-    tradeoff: 'La contrapartida: si cambian los firmantes del puente, los depósitos y las retiradas se pausan. Una rotación planificada por los operadores de BTCVM se ve igual que un servidor secuestrado, y la wallet no puede distinguirlos por sí sola. Por eso deja de mover fondos entre cadenas hasta que se actualice con el nuevo conjunto, te avisa y te dice dónde comprobarlo. Los envíos siguen funcionando. Es intencionado.',
+    tradeoff: 'La contrapartida: si cambian los firmantes del puente, los depósitos y las retiradas se pausan. Una rotación planificada por los operadores de BTCVM se ve igual que un servidor secuestrado. Por eso la wallet busca la transacción con la que los firmantes antiguos trasladan los fondos al nuevo conjunto y comprueba sus firmas: si la encuentra, se actualiza sola y todo vuelve a funcionar. Mientras no la encuentre, no mueve fondos entre cadenas, te avisa y te dice dónde comprobarlo. Los envíos siguen funcionando. Es intencionado.',
     oldPeg: 'Peg fijado en la wallet', newPeg: 'Peg que informa ahora el puente', keysChanged: '{a} claves nuevas, {r} retiradas',
     checkIt: 'Dónde comprobarlo',
     sources: { oldPegOnBitcoin: 'El peg antiguo en un explorador de Bitcoin: tras una rotación real, sus BTC se han movido al nuevo (solo los firmantes antiguos podían hacerlo)', newPegOnBitcoin: 'El peg nuevo en un explorador de Bitcoin', rotationProcedure: 'Cómo rotan los firmantes los operadores de BTCVM', btcvmDocs: 'Documentación de BTCVM (metalbtc.com)', btcvmExplorer: 'Explorador de BTCVM (metalbtc.com)', walletMaker: 'madblocks publica cada conjunto de firmantes verificado con las actualizaciones' },
@@ -99,6 +99,10 @@ const STRINGS = {
     softwareKeyTitle: 'Windows no puede certificar que la clave de esta cartera esté en un chip TPM',
     softwareKeyText: 'Tu clave sigue cifrada y cada pago pide Windows Hello, pero la llave que la abre podría estar guardada por software en lugar de en el chip de seguridad. Pasa en equipos sin TPM o con uno antiguo. Un malware con permisos de administrador lo tendría más fácil: para cantidades grandes, usa un equipo con TPM 2.0.',
     understood: 'Entendido',
+    checkNow: 'Buscar la prueba ahora',
+    rotationTitle: 'Firmantes del puente actualizados',
+    rotationText: 'Los firmantes anteriores firmaron el traslado de los fondos del peg {from} al nuevo {to}, y la wallet ha comprobado sus firmas. Los depósitos y las retiradas vuelven a funcionar con el nuevo conjunto.',
+    viewMove: 'Ver la transacción',
     bump: 'Acelerar', bumpTitle: 'Acelerar un pago',
     bumpText: 'Se envía otra vez con una comisión más alta: las mismas monedas y el mismo pago, y la diferencia sale de tu cambio. Los nodos lo aceptan porque tus pagos lo permiten (RBF). Cuando se confirme uno de los dos, el otro deja de valer: nunca se paga dos veces.',
     previousFee: 'Comisión anterior',
@@ -155,7 +159,7 @@ const STRINGS = {
     bannerInsolvent: 'The bridge\'s audit shows the peg isn\'t fully backed. Don\'t move coins between the chains.',
     bannerBackup: 'Back up your key', bannerBackupText: 'Until then your address isn\'t shown: this PC holds the only copy of the key.', backupNow: 'Back up now (Windows Hello)',
     changeTitle: 'The bridge\'s signers have changed',
-    tradeoff: 'The trade-off: if the bridge\'s signers change, deposits and withdrawals pause. A planned rotation by BTCVM\'s operators looks the same as a hijacked server, and the wallet can\'t tell them apart on its own. So it stops moving coins between the chains until it\'s updated with the new set, warns you, and shows where to check. Sends keep working. This is deliberate.',
+    tradeoff: 'The trade-off: if the bridge\'s signers change, deposits and withdrawals pause. A planned rotation by BTCVM\'s operators looks the same as a hijacked server. So the wallet looks for the transaction in which the old signers move the funds to the new set, and checks their signatures: if it finds it, it updates itself and everything works again. Until then, it moves no coins between the chains, warns you and shows where to check. Sends keep working. This is deliberate.',
     oldPeg: 'Peg pinned in the wallet', newPeg: 'Peg the bridge reports now', keysChanged: '{a} keys added, {r} removed',
     checkIt: 'Where to check it',
     sources: { oldPegOnBitcoin: 'The old peg on a Bitcoin explorer: after a real rotation its BTC have moved to the new one (only the old signers could do that)', newPegOnBitcoin: 'The new peg on a Bitcoin explorer', rotationProcedure: 'How BTCVM\'s operators rotate the signers', btcvmDocs: 'BTCVM\'s documentation (metalbtc.com)', btcvmExplorer: 'BTCVM\'s explorer (metalbtc.com)', walletMaker: 'madblocks publish each verified signer set with the wallet\'s updates' },
@@ -202,6 +206,10 @@ const STRINGS = {
     softwareKeyTitle: 'Windows can\'t certify that this wallet\'s key is in a TPM chip',
     softwareKeyText: 'Your key is still encrypted and every payment asks for Windows Hello, but the key that opens it may be kept in software rather than in the security chip. That happens on PCs without a TPM or with an old one. Malware with administrator rights would have an easier time: for large amounts, use a PC with TPM 2.0.',
     understood: 'Got it',
+    checkNow: 'Look for the proof now',
+    rotationTitle: 'The bridge\'s signers were updated',
+    rotationText: 'The previous signers signed the move of the funds from the peg {from} to the new {to}, and the wallet checked their signatures. Deposits and withdrawals work again with the new set.',
+    viewMove: 'View the transaction',
     bump: 'Speed up', bumpTitle: 'Speed up a payment',
     bumpText: 'It is sent again with a higher fee: the same coins and the same payment, the difference coming out of your change. Nodes accept it because your payments allow it (RBF). Once one of the two confirms, the other is void: it is never paid twice.',
     previousFee: 'Previous fee',
@@ -312,6 +320,10 @@ const ERRORS_ES = [
   ['back up your key before receiving', 'haz la copia de seguridad de tu clave antes de recibir'],
   ['copy your recovery phrase or your key (WIF) first, then press the button', 'copia primero tu frase de recuperación o tu clave (WIF) y luego pulsa el botón'],
   ['there is no backup to check', 'no hay ninguna copia que comprobar'],
+  ['that transaction doesn\'t move the peg to the new signers (no BVMM tag naming them)', 'esa transacción no traslada el peg a los nuevos firmantes (no lleva la marca BVMM que los nombra)'],
+  ['no input of that transaction carries the old signers\' signatures', 'ninguna entrada de esa transacción lleva las firmas de los firmantes antiguos'],
+  ['not a signer set\'s multisig script', 'no es el script multifirma de un conjunto de firmantes'],
+  ['no such input', 'esa entrada no existe'],
   ['that payment isn\'t waiting any more', 'ese pago ya no está pendiente'],
   ['this payment can\'t be replaced: it doesn\'t signal BIP 125', 'este pago no se puede sustituir: no lo permite (BIP 125)'],
   ['that payment pays out more than it spends', 'ese pago gasta más de lo que tiene'],
@@ -500,7 +512,16 @@ function renderBanners() {
       h('p', {}, h('strong', {}, t('newPeg') + ': '), h('span', { class: 'mono' }, c.reportedPeg)),
       h('p', { class: 'small' }, t('keysChanged', { a: c.added.length, r: c.removed.length })),
       h('p', {}, h('strong', {}, t('checkIt'))),
-      h('ul', {}, c.links.map((l, i) => h('li', {}, link('check', String(i), t(`sources.${l.source}`)))))));
+      h('ul', {}, c.links.map((l, i) => h('li', {}, link('check', String(i), t(`sources.${l.source}`))))),
+      h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => act(() => invoke('check_rotation')) }, t('checkNow')))));
+  }
+  if (b.rotation) {
+    const r = b.rotation;
+    out.push(h('div', { class: 'banner ok' }, h('h3', {}, t('rotationTitle')),
+      h('p', {}, t('rotationText', { from: short(r.fromPeg), to: short(r.toPeg) })),
+      h('div', { class: 'row' },
+        link(r.chain === 'btcvm' ? 'tx-btcvm' : 'tx-bitcoin', r.txid, t('viewMove')),
+        h('button', { type: 'button', onclick: () => act(() => invoke('rotation_seen')) }, t('understood')))));
   }
   if (b.error) {
     out.push(banner(true, t('bannerUntrusted'), h('p', {}, tr(b.error.message)), h('p', {}, t('bannerUntrustedText'))));
