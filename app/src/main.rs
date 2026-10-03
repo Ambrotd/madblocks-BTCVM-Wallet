@@ -11,12 +11,14 @@
 
 mod api;
 mod clip;
+mod journal;
 mod store;
 mod wallet;
 
 use btcvm_wallet_core::about;
 use serde::Serialize;
 use std::io::BufRead;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -30,11 +32,31 @@ use zeroize::Zeroizing;
 
 type Shared = Arc<Wallet>;
 
-/// Runs blocking work (the network, Windows Hello) off the main thread.
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+/// Runs blocking work (the network, Windows Hello) off the main thread. A
+/// panic there comes back as a failure, logged, instead of a call that never
+/// answers.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
     tauri::async_runtime::spawn_blocking(f)
         .await
-        .expect("the task ran")
+        .map_err(|_| failure(INTERNAL))
+}
+
+const INTERNAL: &str = "something went wrong inside the wallet; nothing was signed or sent. The details are in the log (Settings)";
+
+/// Logs a failure on its way to the window. Canceling Windows Hello isn't one.
+fn logged<T>(what: &str, result: Result<T, Failure>) -> Result<T, Failure> {
+    if let Err(e) = &result {
+        if !e.canceled {
+            journal::warn(&format!("{what}: {}", e.message));
+        }
+    }
+    result
+}
+
+/// Runs one pass of a background loop; a panic in it is logged (by the
+/// hook) and the loop goes on.
+fn guarded(f: impl FnOnce()) {
+    let _ = catch_unwind(AssertUnwindSafe(f));
 }
 
 fn failure(message: impl Into<String>) -> Failure {
@@ -176,12 +198,12 @@ async fn view(w: State<'_, Shared>) -> Result<View, Failure> {
 #[tauri::command]
 async fn refresh(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
-    Ok(blocking(move || {
+    blocking(move || {
         w.refresh();
         publish(&app, &w);
         w.view()
     })
-    .await)
+    .await
 }
 
 #[tauri::command]
@@ -191,23 +213,29 @@ async fn create_wallet(
     w: State<'_, Shared>,
 ) -> Result<View, Failure> {
     let w = w.inner().clone();
-    blocking(move || {
-        let language = w.language();
-        w.create(&name, |wif| {
-            show_backup(&app, &language, &w.active_label(), wif)
+    logged(
+        "creating a wallet",
+        blocking(move || {
+            let language = w.language();
+            w.create(&name, |wif| {
+                show_backup(&app, &language, &w.active_label(), wif)
+            })
         })
-    })
-    .await
+        .await?,
+    )
 }
 
 #[tauri::command]
 async fn backup(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
-    blocking(move || {
-        let language = w.language();
-        w.backup(|wif| show_backup(&app, &language, &w.active_label(), wif))
-    })
-    .await
+    logged(
+        "backing up",
+        blocking(move || {
+            let language = w.language();
+            w.backup(|wif| show_backup(&app, &language, &w.active_label(), wif))
+        })
+        .await?,
+    )
 }
 
 /// Reads the key from the clipboard here, then clears the clipboard.
@@ -229,20 +257,23 @@ async fn import_from_clipboard(
 ) -> Result<View, Failure> {
     let text = take_key_from_clipboard(&app)?;
     let w = w.inner().clone();
-    blocking(move || w.import(&name, text)).await
+    logged(
+        "importing a key",
+        blocking(move || w.import(&name, text)).await?,
+    )
 }
 
 #[tauri::command]
 async fn restore_from_clipboard(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
     let text = take_key_from_clipboard(&app)?;
     let w = w.inner().clone();
-    blocking(move || w.restore(text)).await
+    logged("restoring", blocking(move || w.restore(text)).await?)
 }
 
 #[tauri::command]
 async fn remove_wallet(app: AppHandle, w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
-    blocking(move || {
+    let removed = blocking(move || {
         let t = texts(&w.language());
         let wallet = w.active_label();
         w.remove(|| {
@@ -257,13 +288,14 @@ async fn remove_wallet(app: AppHandle, w: State<'_, Shared>) -> Result<View, Fai
                 .blocking_show()
         })
     })
-    .await
+    .await?;
+    logged("removing a wallet", removed)
 }
 
 #[tauri::command]
 async fn select_wallet(id: String, w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.select(&id)).await
+    logged("switching wallets", blocking(move || w.select(&id)).await?)
 }
 
 #[tauri::command]
@@ -303,7 +335,7 @@ async fn remove_contact(
 #[tauri::command]
 async fn fee_options(w: State<'_, Shared>) -> Result<wallet::FeeOptions, Failure> {
     let w = w.inner().clone();
-    Ok(blocking(move || w.fee_options()).await)
+    blocking(move || w.fee_options()).await
 }
 
 #[tauri::command]
@@ -315,7 +347,10 @@ async fn prepare_send(
     w: State<'_, Shared>,
 ) -> Result<Review, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.prepare_send(&chain, &to, &amount, fee_rate)).await
+    logged(
+        "preparing a payment",
+        blocking(move || w.prepare_send(&chain, &to, &amount, fee_rate)).await?,
+    )
 }
 
 #[tauri::command]
@@ -325,7 +360,10 @@ async fn prepare_deposit(
     w: State<'_, Shared>,
 ) -> Result<Review, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.prepare_deposit(&amount, fee_rate)).await
+    logged(
+        "preparing a deposit",
+        blocking(move || w.prepare_deposit(&amount, fee_rate)).await?,
+    )
 }
 
 #[tauri::command]
@@ -335,7 +373,10 @@ async fn prepare_withdrawal(
     w: State<'_, Shared>,
 ) -> Result<Review, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.prepare_withdrawal(&to, &amount)).await
+    logged(
+        "preparing a withdrawal",
+        blocking(move || w.prepare_withdrawal(&to, &amount)).await?,
+    )
 }
 
 #[tauri::command]
@@ -347,20 +388,23 @@ async fn max_amount(
     w: State<'_, Shared>,
 ) -> Result<String, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.max_amount(&action, &chain, &to, fee_rate)).await
+    blocking(move || w.max_amount(&action, &chain, &to, fee_rate)).await?
 }
 
 #[tauri::command]
 async fn confirm(id: u64, app: AppHandle, w: State<'_, Shared>) -> Result<Sent, Failure> {
     let w = w.inner().clone();
-    blocking(move || {
-        let sent = w.confirm(id);
-        std::thread::sleep(Duration::from_millis(1500));
-        w.refresh();
-        publish(&app, &w);
-        sent
-    })
-    .await
+    logged(
+        "signing",
+        blocking(move || {
+            let sent = w.confirm(id);
+            std::thread::sleep(Duration::from_millis(1500));
+            w.refresh();
+            publish(&app, &w);
+            sent
+        })
+        .await?,
+    )
 }
 
 #[tauri::command]
@@ -372,7 +416,10 @@ async fn cancel(id: u64, w: State<'_, Shared>) -> Result<(), Failure> {
 #[tauri::command]
 async fn set_server(url: String, w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
-    blocking(move || w.set_server(&url)).await
+    logged(
+        "changing the bridge",
+        blocking(move || w.set_server(&url)).await?,
+    )
 }
 
 #[tauri::command]
@@ -404,6 +451,16 @@ async fn open_link(
         .map_err(|e| failure(e.to_string()))
 }
 
+/// Opens the folder with the log, for sending it to support.
+#[tauri::command]
+async fn open_logs(app: AppHandle) -> Result<(), Failure> {
+    let dir = journal::dir().ok_or_else(|| failure("there is no log yet"))?;
+    std::fs::create_dir_all(dir).map_err(|e| failure(e.to_string()))?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| failure(e.to_string()))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct About {
@@ -426,14 +483,29 @@ async fn about_info() -> Result<About, Failure> {
 }
 
 fn main() {
+    if let Ok(dir) = btcvm_wallet_vault::default_dir() {
+        journal::init(&dir);
+    }
+    journal::info(&format!("starting version {}", env!("CARGO_PKG_VERSION")));
     let wallet: Shared = match Wallet::open("en") {
         Ok(w) => Arc::new(w),
         Err(e) => {
+            journal::error(&format!("can't start: {e}"));
             eprintln!("madblocks BTCVM Wallet can't start: {e}");
             std::process::exit(1);
         }
     };
     tauri::Builder::default()
+        // First: a second copy only brings this window forward. Two copies
+        // would each save over the other's records, and could spend the
+        // same coins twice.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -445,8 +517,10 @@ fn main() {
             std::thread::spawn({
                 let (w, handle) = (w.clone(), handle.clone());
                 move || loop {
-                    w.refresh();
-                    publish(&handle, &w);
+                    guarded(|| {
+                        w.refresh();
+                        publish(&handle, &w);
+                    });
                     std::thread::sleep(Duration::from_secs(30));
                 }
             });
@@ -456,10 +530,10 @@ fn main() {
                     if let Ok(stream) = w.events() {
                         for line in stream.lines() {
                             match line {
-                                Ok(l) if l.starts_with("data:") => {
+                                Ok(l) if l.starts_with("data:") => guarded(|| {
                                     w.refresh();
                                     publish(&handle, &w);
-                                }
+                                }),
                                 Ok(_) => {}
                                 Err(_) => break,
                             }
@@ -495,6 +569,7 @@ fn main() {
             set_language,
             copy_address,
             open_link,
+            open_logs,
             about_info,
         ])
         .run(tauri::generate_context!())

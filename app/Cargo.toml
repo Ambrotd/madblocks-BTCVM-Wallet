@@ -14,10 +14,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 btcvm-wallet-core = { path = "../core" }
 btcvm-wallet-vault = { path = "../vault" }
-tauri = { version = "2", features = [] }
+# custom-protocol: the window loads the files built into the exe, as `tauri
+# build` does, in every build; this app never uses a dev server.
+tauri = { version = "2", features = ["custom-protocol"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
 ureq = { version = "3", features = ["json", "platform-verifier"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

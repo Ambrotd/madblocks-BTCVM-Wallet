@@ -86,6 +86,10 @@ const STRINGS = {
     feeVmFixed: 'En BTCVM la comisión es fija y mínima: 1 sat por cada 1000 vB (como poco, 1 sat). Solo se elige en Bitcoin.',
     feeHelp: 'Se paga por tamaño (sat por vbyte), no por cantidad. Una comisión baja no pone en riesgo tus fondos: solo tarda más en confirmarse. Si queda por debajo del mínimo de la red, se rechaza y no sale nada.',
     backupShort: 'Copia de seguridad', removeShort: 'Quitar', sure: '¿Seguro? Pulsa otra vez',
+    incomingDeposit: 'pendiente: +{amount} BTC de tu depósito, cuando el puente lo acredite',
+    internalTitle: 'Algo ha fallado dentro de la wallet',
+    internalText: 'La wallet sigue funcionando y no se ha firmado ni enviado nada por ello. El detalle está en el registro; si se repite, envíaselo a madblocks (no contiene claves).',
+    openLogs: 'Abrir el registro',
   },
   en: {
     byline: 'by madblocks · XPR Network BP and Metal validator',
@@ -167,6 +171,10 @@ const STRINGS = {
     feeVmFixed: 'On BTCVM the fee is fixed and tiny: 1 sat per 1000 vB (at least 1 sat). It\'s only chosen on Bitcoin.',
     feeHelp: 'You pay by size (sat per vbyte), not by amount. A low fee doesn\'t put your funds at risk: it only takes longer to confirm. Under the network\'s minimum, it\'s refused and nothing is sent.',
     backupShort: 'Back up', removeShort: 'Remove', sure: 'Sure? Click again',
+    incomingDeposit: 'pending: +{amount} BTC from your deposit, once the bridge credits it',
+    internalTitle: 'Something went wrong inside the wallet',
+    internalText: 'The wallet keeps working, and nothing was signed or sent because of it. The details are in the log; if it happens again, send it to madblocks (it holds no keys).',
+    openLogs: 'Open the log',
   },
 };
 
@@ -299,6 +307,10 @@ function renderBanners() {
   if (b.error) {
     out.push(banner(true, t('bannerUntrusted'), h('p', {}, b.error.message), h('p', {}, t('bannerUntrustedText'))));
   }
+  if (view.internalError) {
+    out.push(banner(true, t('internalTitle'), h('p', {}, t('internalText')), h('p', { class: 'small mono' }, view.internalError),
+      h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => invoke('open_logs').catch(showError) }, t('openLogs')))));
+  }
   if (view.connectionError) out.push(banner(false, t('bannerOffline'), h('p', {}, view.connectionError)));
   if (b.paused) out.push(banner(false, t('bannerPaused')));
   if (b.solvent === false) out.push(banner(true, t('bannerInsolvent')));
@@ -428,12 +440,15 @@ function updateActions() {
   }
 }
 
-function balanceCard(cls, title, bal, note) {
+/** A balance, with what is pending: unconfirmed payments, and on BTCVM the
+ *  deposits the bridge hasn't credited yet. */
+function balanceCard(cls, title, bal, note, incoming) {
   return h('section', { class: `card balance ${cls}` },
     h('h2', {}, h('img', { src: cls === 'vm' ? 'btcvm.svg' : 'bitcoin.svg', alt: '', class: 'coin' }), title),
     bal
       ? h('div', {}, h('div', { class: 'amount' }, bal.confirmed, ' ', h('small', {}, 'BTC')),
-        bal.pending && !/^-?0(\.0*)?$/.test(bal.pending) ? h('div', { class: 'small muted' }, `${t('pending')}: ${bal.pending} BTC`) : null)
+        bal.pending && !/^-?0(\.0*)?$/.test(bal.pending) ? h('div', { class: 'small muted' }, `${t('pending')}: ${bal.pending} BTC`) : null,
+        incoming ? h('div', { class: 'small muted' }, t('incomingDeposit', { amount: incoming })) : null)
       : h('div', { class: 'muted' }, note ? t(note) : t('loading')));
 }
 
@@ -453,7 +468,7 @@ function updateWallet() {
 
   $('balances').replaceChildren(
     balanceCard('btc', t('bitcoin'), view.bitcoin, view.bitcoinNote),
-    balanceCard('vm', t('btcvm'), view.btcvm, null));
+    balanceCard('vm', t('btcvm'), view.btcvm, null, view.btcvmIncoming));
 
   updateActions();
   refillPickers();
@@ -804,6 +819,7 @@ function openSettings() {
     view.hasWallet ? h('div', { class: 'row' },
       h('button', { type: 'button', onclick: () => act(() => invoke('backup')) }, t('backupKey')),
       h('button', { class: 'danger', type: 'button', onclick: () => act(() => invoke('remove_wallet')) }, t('removeWallet'))) : null,
+    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => invoke('open_logs').catch(showError) }, t('openLogs'))),
     h('h3', {}, t('security')),
     h('p', { class: 'small' }, t('securityText')),
     h('p', { class: 'small' }, t('tradeoff')),
