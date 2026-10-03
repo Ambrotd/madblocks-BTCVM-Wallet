@@ -56,7 +56,7 @@ short:
 | Layer | Tech | Role | Status |
 | --- | --- | --- | --- |
 | `core/` | Rust (`btcvm-wallet-core`) | Keys, addresses, deposit addresses, the bridge check, building and signing transactions | Done |
-| `vault/` | Rust (`btcvm-wallet-vault`) | The key's vault: AES-256-GCM under a key that only a Windows Hello signature, from a key the TPM holds, produces | Done; to try on real Windows Hello |
+| `vault/` | Rust (`btcvm-wallet-vault`) | The key's vault: AES-256-GCM under a key that only a Windows Hello signature, from a key the TPM holds, produces | Done, checked on real Windows Hello |
 | `app/` | Tauri 2 (Rust and WebView2) | The Windows app. The key never reaches the web view. | Next |
 
 The core must agree byte for byte with BTCVM's web wallet (`chain.js` in

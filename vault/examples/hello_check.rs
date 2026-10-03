@@ -19,7 +19,7 @@ fn main() {
         }
         Err(e) => return println!("✗ {e}"),
     }
-    let name = "madblocks-btcvm-wallet/hello-check";
+    let name = "madblocks-btcvm-wallet-hello-check";
     let hello = WindowsHello;
     let _ = hello.delete(name); // from an earlier, interrupted run
     let check = || -> Result<(), btcvm_wallet_vault::VaultError> {

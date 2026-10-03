@@ -203,7 +203,8 @@ impl<G: Gate> Vault<G> {
         fs::create_dir_all(&self.dir).map_err(io)?;
         let mut id = [0u8; 8];
         OsRng.fill_bytes(&mut id);
-        let credential = format!("madblocks-btcvm-wallet/{}", hex::encode(id));
+        // Letters, digits and hyphens: Windows Hello refuses a name with "/".
+        let credential = format!("madblocks-btcvm-wallet-{}", hex::encode(id));
         let public_key = self.gate.create(&credential)?;
         let result = (|| {
             let (challenge, salt) = sealed::fresh_challenge();
