@@ -49,7 +49,7 @@ pub fn new_entropy() -> Zeroizing<[u8; 16]> {
 /// The phrase for `entropy` (16 to 32 bytes, in steps of 4), the words
 /// separated by single spaces.
 pub fn words(entropy: &[u8]) -> Result<Zeroizing<String>> {
-    if !(16..=32).contains(&entropy.len()) || entropy.len() % 4 != 0 {
+    if !(16..=32).contains(&entropy.len()) || !entropy.len().is_multiple_of(4) {
         return invalid("a recovery phrase's entropy is 16 to 32 bytes, in steps of 4");
     }
     let hash = sha256(entropy);
