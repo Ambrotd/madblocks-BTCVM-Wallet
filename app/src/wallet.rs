@@ -2481,6 +2481,7 @@ impl Wallet {
             "vote" => about::XPR_VOTE_URL.into(),
             "metal" => about::METAL_VALIDATOR_URL.into(),
             "x" => about::X_URL.into(),
+            "source" => about::SOURCE_URL.into(),
             "btcvm" => "https://metalbtc.com".into(),
             "tx-bitcoin" => format!("https://mempool.space/tx/{}", txid()?),
             "tx-btcvm" => format!("https://metalbtc.com/explorer#/tx/{}", txid()?),

@@ -19,10 +19,11 @@ use std::time::Duration;
 /// Empty in a build that doesn't update itself.
 pub const UPDATE_KEY: &str = "";
 
-/// Where releases are published, with `latest.json` and its signature:
-/// `https://github.com/<owner>/<repo>/releases/latest/download`. Empty in a
-/// build that doesn't update itself.
-pub const RELEASES: &str = "";
+/// Where releases are published, with `latest.json` and its signature: the
+/// latest release of the wallet's repository (`about::SOURCE_URL`). Empty in
+/// a build that doesn't update itself.
+pub const RELEASES: &str =
+    "https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases/latest/download";
 
 /// No exe this wallet ships comes near it.
 const MAX_EXE: u64 = 64 << 20;
@@ -248,5 +249,10 @@ mod tests {
             configured(),
             !UPDATE_KEY.is_empty() && RELEASES.starts_with("https://")
         );
+    }
+
+    #[test]
+    fn releases_come_from_the_wallets_repository() {
+        assert!(RELEASES.is_empty() || RELEASES.starts_with(btcvm_wallet_core::about::SOURCE_URL));
     }
 }

@@ -22,9 +22,9 @@ can sign updates that every wallet installs; without them, no wallet can be upda
 
 Then:
 
-1. Put the public key it prints in `app/src/update.rs` as `UPDATE_KEY`, and the releases' address as
-   `RELEASES`: `https://github.com/<owner>/<repo>/releases/latest/download`. A build without them doesn't
-   update itself.
+1. Put the public key it prints in `app/src/update.rs` as `UPDATE_KEY`. `RELEASES` there already points at
+   this repository's latest release (`https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases/latest/download`). A build without
+   the key doesn't update itself.
 2. In the GitHub repository's Settings > Secrets and variables > Actions, add `UPDATE_SECRET_KEY` (the
    contents of `madblocks-update.key`) and `UPDATE_KEY_PASSWORD`.
 
