@@ -60,10 +60,10 @@ const INTERNAL: &str = "something went wrong inside the wallet; nothing was sign
 
 /// Logs a failure on its way to the window. Canceling Windows Hello isn't one.
 fn logged<T>(what: &str, result: Result<T, Failure>) -> Result<T, Failure> {
-    if let Err(e) = &result {
-        if !e.canceled {
-            journal::warn(&format!("{what}: {}", e.message));
-        }
+    if let Err(e) = &result
+        && !e.canceled
+    {
+        journal::warn(&format!("{what}: {}", e.message));
     }
     result
 }
@@ -217,11 +217,10 @@ fn publish(app: &AppHandle, w: &Wallet) {
         for n in &notices {
             let _ = app.emit("notice", n);
         }
-        if let Some(window) = app.get_webview_window("main") {
-            if !window.is_focused().unwrap_or(true) {
-                let _ =
-                    window.request_user_attention(Some(tauri::UserAttentionType::Informational));
-            }
+        if let Some(window) = app.get_webview_window("main")
+            && !window.is_focused().unwrap_or(true)
+        {
+            let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
         }
     }
     if let Some(change) = w.new_signer_change() {

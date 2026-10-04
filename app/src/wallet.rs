@@ -1107,14 +1107,14 @@ impl Wallet {
             let new = seen.txids.insert(format!("{chain}:{txid}"));
             if new && known.contains(chain) {
                 // Only what comes in: a net loss doesn't parse as an amount.
-                if let Ok(amount) = parse_btc(&net) {
-                    if amount > 0 {
-                        notices.push(Notice {
-                            chain,
-                            amount: format_btc(amount),
-                            confirmed: confirmations > 0,
-                        });
-                    }
+                if let Ok(amount) = parse_btc(&net)
+                    && amount > 0
+                {
+                    notices.push(Notice {
+                        chain,
+                        amount: format_btc(amount),
+                        confirmed: confirmations > 0,
+                    });
                 }
             }
         }
@@ -1147,10 +1147,13 @@ impl Wallet {
         if fresh && !now_please {
             return;
         }
-        if let Ok(p) = self.bridge().prices() {
-            if p.usd.is_finite() && p.eur.is_finite() && p.usd > 0.0 && p.eur > 0.0 {
-                *self.prices.guard() = Some((p, now()));
-            }
+        if let Ok(p) = self.bridge().prices()
+            && p.usd.is_finite()
+            && p.eur.is_finite()
+            && p.usd > 0.0
+            && p.eur > 0.0
+        {
+            *self.prices.guard() = Some((p, now()));
         }
     }
 

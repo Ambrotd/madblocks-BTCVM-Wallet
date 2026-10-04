@@ -2,7 +2,7 @@
 name = "btcvm-wallet-vault"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "The wallet key's vault: encrypted at rest, unlocked by Windows Hello with a TPM-held key."
 authors = ["madblocks <https://madblocks.tech>"]
 license = "MIT"

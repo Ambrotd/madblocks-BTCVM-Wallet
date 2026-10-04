@@ -2,7 +2,7 @@
 name = "release-tool"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Signs madblocks BTCVM Wallet releases: makes the update key, writes latest.json, and signs it and the exe (minisign)."
 authors = ["madblocks <https://madblocks.tech>"]
 license = "MIT"

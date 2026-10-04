@@ -102,7 +102,7 @@ behind following a rotation passes BIP 143's examples.
 
 ## Building
 
-Requires Rust 1.85 or later. On Windows, the Windows Hello gate needs the MSVC toolchain (Visual Studio
+Requires Rust 1.88 or later. On Windows, the Windows Hello gate needs the MSVC toolchain (Visual Studio
 Build Tools with C++). With the GNU toolchain, test the rest with
 `cargo test -p btcvm-wallet-core` and `cargo test -p btcvm-wallet-vault --no-default-features`.
 `cargo run -p btcvm-wallet-vault --example hello_check` tries Windows Hello on this PC (it asks three times).
