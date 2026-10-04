@@ -26,8 +26,10 @@ Then:
    `RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4`). `RELEASES` there points at this repository's latest release
    (`https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases/latest/download`). A build without the key
    doesn't update itself.
-2. In the GitHub repository's Settings > Secrets and variables > Actions, add `UPDATE_SECRET_KEY` (the
-   contents of `madblocks-update.key`) and `UPDATE_KEY_PASSWORD`.
+2. In the GitHub repository's Settings > Environments > `BTCVM` (the environment the release job runs
+   in), add the secrets `UPDATE_SECRET_KEY` (the contents of `madblocks-update.key`) and
+   `UPDATE_KEY_PASSWORD`. Under "Deployment branches and tags", allow only tags matching `v*`, so no
+   other workflow or branch can reach the key; "Required reviewers" adds a click before each release.
 
 ## Optional: an Authenticode signature
 

@@ -16,6 +16,9 @@ jobs:
   release:
     name: Build, sign and publish the standalone exe
     runs-on: windows-latest
+    # The signing secrets live in this environment; limit it to v* tags in
+    # Settings > Environments so nothing but a release can use them.
+    environment: BTCVM
     env:
       HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
     steps:
