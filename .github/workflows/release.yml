@@ -73,12 +73,16 @@ jobs:
           $public = (Select-String -Path app/src/update.rs -Pattern 'pub const UPDATE_KEY: &str = "([^"]+)";').Matches |
             Select-Object -First 1 | ForEach-Object { $_.Groups[1].Value }
           if (-not $public) { throw "app/src/update.rs has no UPDATE_KEY: this build wouldn't update itself" }
-          # The key file is a comment line, then the key; a secret holding only
-          # the key's line gets the comment back.
-          $secret = $env:UPDATE_SECRET_KEY.Trim()
-          if (@($secret -split "`r?`n").Count -lt 2) { $secret = "untrusted comment: madblocks update key`n$secret" }
+          # The key's line of madblocks-update.key (base64, starting with RW),
+          # however the secret was pasted: the whole file, that line alone, or
+          # with its line breaks lost. Its comment line is written back.
+          $found = [regex]::Match($env:UPDATE_SECRET_KEY, 'RW[A-Za-z0-9+/]{100,}={0,2}')
+          if (-not $found.Success) {
+            $shape = ($env:UPDATE_SECRET_KEY -split "`r?`n" | ForEach-Object { $_.Trim().Length }) -join ', '
+            throw "UPDATE_SECRET_KEY doesn't hold madblocks-update.key (it has lines of $shape characters; the key's line is about 212, starting with RW)"
+          }
           $key = "$env:RUNNER_TEMP/madblocks-update.key"
-          Set-Content -Path $key -Value $secret -NoNewline
+          Set-Content -Path $key -Value "untrusted comment: madblocks update key`n$($found.Value)" -NoNewline
           $tool = "target/release/release-tool.exe"
           $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$env:EXE"
           $notes = "release-notes/$env:VERSION.json"
