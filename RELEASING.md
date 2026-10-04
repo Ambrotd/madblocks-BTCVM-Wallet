@@ -22,9 +22,10 @@ can sign updates that every wallet installs; without them, no wallet can be upda
 
 Then:
 
-1. Put the public key it prints in `app/src/update.rs` as `UPDATE_KEY`. `RELEASES` there already points at
-   this repository's latest release (`https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases/latest/download`). A build without
-   the key doesn't update itself.
+1. Put the public key it prints in `app/src/update.rs` as `UPDATE_KEY` (done: madblocks' key is
+   `RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4`). `RELEASES` there points at this repository's latest release
+   (`https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases/latest/download`). A build without the key
+   doesn't update itself.
 2. In the GitHub repository's Settings > Secrets and variables > Actions, add `UPDATE_SECRET_KEY` (the
    contents of `madblocks-update.key`) and `UPDATE_KEY_PASSWORD`.
 
@@ -54,13 +55,14 @@ To sign by hand instead: `cargo build --release -p madblocks-btcvm-wallet`, then
 
 ## Checking a download
 
-The exe's signature, with the public key (`madblocks-update.pub`, or the `UPDATE_KEY` in `app/src/update.rs`):
+The exe's signature, with madblocks' public key (also in `madblocks-update.pub` and as `UPDATE_KEY` in
+`app/src/update.rs`):
 
 ```sh
-minisign -Vm madblocks-btcvm-wallet-<version>-x64.exe -P <public key>
+minisign -Vm madblocks-btcvm-wallet-<version>-x64.exe -P RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4
 ```
 
-or `cargo run -p release-tool -- verify <public key> <exe>`. Its SHA-256 is in the `.sha256` file beside it:
+or `cargo run -p release-tool -- verify RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4 <exe>`. Its SHA-256 is in the `.sha256` file beside it:
 `Get-FileHash <exe>` in PowerShell.
 
 ## When BTCVM's signers rotate

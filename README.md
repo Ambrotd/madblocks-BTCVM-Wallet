@@ -25,8 +25,9 @@ Windows 10 and 11 with Windows Hello set up (a PIN is enough) and Microsoft Edge
 Windows 11 has. Your wallets live in `%LOCALAPPDATA%\madblocks BTCVM Wallet`, not beside the exe: moving or
 deleting the exe touches no wallet.
 
-Each release is signed by madblocks (minisign; see [RELEASING.md](RELEASING.md) to check a download), and
-the app updates itself only to a newer release with that signature, when you say so.
+Each release is signed by madblocks with minisign, public key
+`RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4` (see [RELEASING.md](RELEASING.md) to check a download), and the
+app updates itself only to a newer release with that signature, when you say so.
 
 ## What it does
 

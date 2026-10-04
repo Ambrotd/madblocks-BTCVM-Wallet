@@ -17,7 +17,7 @@ use std::time::Duration;
 
 /// madblocks' update key: the public key `release-tool keygen` prints.
 /// Empty in a build that doesn't update itself.
-pub const UPDATE_KEY: &str = "";
+pub const UPDATE_KEY: &str = "RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4";
 
 /// Where releases are published, with `latest.json` and its signature: the
 /// latest release of the wallet's repository (`about::SOURCE_URL`). Empty in
@@ -248,6 +248,14 @@ mod tests {
         assert_eq!(
             configured(),
             !UPDATE_KEY.is_empty() && RELEASES.starts_with("https://")
+        );
+    }
+
+    #[test]
+    fn the_update_key_is_a_minisign_public_key() {
+        // A mistyped key would leave every wallet unable to update.
+        assert!(
+            UPDATE_KEY.is_empty() || minisign_verify::PublicKey::from_base64(UPDATE_KEY).is_ok()
         );
     }
 
