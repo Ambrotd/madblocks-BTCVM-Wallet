@@ -68,8 +68,17 @@ jobs:
           MADBLOCKS_UPDATE_PASSWORD: ${{ secrets.UPDATE_KEY_PASSWORD }}
         run: |
           if (-not $env:UPDATE_SECRET_KEY) { throw "the UPDATE_SECRET_KEY secret isn't set: no release goes out unsigned" }
+          # The key built into the app: the signatures must verify with it, or
+          # no wallet would take this release.
+          $public = (Select-String -Path app/src/update.rs -Pattern 'pub const UPDATE_KEY: &str = "([^"]+)";').Matches |
+            Select-Object -First 1 | ForEach-Object { $_.Groups[1].Value }
+          if (-not $public) { throw "app/src/update.rs has no UPDATE_KEY: this build wouldn't update itself" }
+          # The key file is a comment line, then the key; a secret holding only
+          # the key's line gets the comment back.
+          $secret = $env:UPDATE_SECRET_KEY.Trim()
+          if (@($secret -split "`r?`n").Count -lt 2) { $secret = "untrusted comment: madblocks update key`n$secret" }
           $key = "$env:RUNNER_TEMP/madblocks-update.key"
-          Set-Content -Path $key -Value $env:UPDATE_SECRET_KEY -NoNewline
+          Set-Content -Path $key -Value $secret -NoNewline
           $tool = "target/release/release-tool.exe"
           $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$env:EXE"
           $notes = "release-notes/$env:VERSION.json"
@@ -80,8 +89,11 @@ jobs:
           }
           if ($LASTEXITCODE -ne 0) { throw "the manifest failed" }
           & $tool sign $key dist/latest.json "dist/$env:EXE"
-          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          $signed = $LASTEXITCODE
           Remove-Item $key
+          if ($signed -ne 0) { throw "signing failed" }
+          & $tool verify $public dist/latest.json "dist/$env:EXE"
+          if ($LASTEXITCODE -ne 0) { throw "the signatures don't verify with the app's UPDATE_KEY: UPDATE_SECRET_KEY holds another key" }
           $hash = (Get-FileHash "dist/$env:EXE" -Algorithm SHA256).Hash.ToLower()
           "$hash  $env:EXE" | Out-File -Encoding ascii "dist/$env:EXE.sha256"
 
