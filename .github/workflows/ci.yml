@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   core:
-    name: Build and test on ${{ matrix.os }} (the core must match BTCVM's vectors)
+    name: Build and test on ${{ matrix.os }} (the core must match BTCVM's and DogecoinVM's vectors)
     strategy:
       fail-fast: false
       matrix:

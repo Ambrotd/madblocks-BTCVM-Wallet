@@ -1,4 +1,4 @@
-<h1 align="center">madblocks BTCVM Wallet</h1>
+<h1 align="center">madblocks Metal Wallet</h1>
 
 <p align="center">
   A Windows wallet for <strong>Bitcoin</strong> and <strong>BTCVM</strong>, <strong>Dogecoin</strong> and <strong>DogecoinVM</strong>, and the bridges between them.<br/>
@@ -7,7 +7,7 @@
 
 <p align="center">
   Created by <a href="https://madblocks.tech"><strong>madblocks</strong></a>,
-  XPR Network block producer and Metal Blockchain validator.
+  XPR Network block producer and Metal Blockchain validator. Called madblocks BTCVM Wallet until 0.3.0.
 </p>
 
 ---
@@ -20,10 +20,10 @@
 ## Download
 
 The wallet is one standalone exe, with nothing to install: download
-`madblocks-btcvm-wallet-<version>-x64.exe` from the repository's [Releases](https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases) and open it. It runs on
+`madblocks-metal-wallet-<version>-x64.exe` (`madblocks-btcvm-wallet-…` up to 0.2.0) from the repository's [Releases](https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases) and open it. It runs on
 Windows 10 and 11 with Windows Hello set up (a PIN is enough) and Microsoft Edge WebView2 Runtime, which
-Windows 11 has. Your wallets live in `%LOCALAPPDATA%\madblocks BTCVM Wallet`, not beside the exe: moving or
-deleting the exe touches no wallet.
+Windows 11 has. Your wallets live in `%LOCALAPPDATA%\madblocks BTCVM Wallet` (the folder keeps the wallet's
+first name), not beside the exe: moving or deleting the exe touches no wallet.
 
 Each release is signed by madblocks with minisign, public key
 `RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4` (see [RELEASING.md](RELEASING.md) to check a download), and the

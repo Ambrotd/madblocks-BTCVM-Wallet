@@ -1,6 +1,6 @@
 # Releasing
 
-madblocks BTCVM Wallet ships as one standalone exe: no installer. The exe carries the window's files, keeps
+madblocks Metal Wallet ships as one standalone exe: no installer. The exe carries the window's files, keeps
 its data in `%LOCALAPPDATA%\madblocks BTCVM Wallet` (the vaults, which only open on this PC with its
 Windows Hello, the settings and the log), and needs Microsoft Edge WebView2 Runtime, which Windows 11 has and
 Windows 10 usually has; without it the app says so and links the download. Deleting the exe deletes no
@@ -63,7 +63,7 @@ The exe's signature, with madblocks' public key (also in `madblocks-update.pub` 
 `app/src/update.rs`):
 
 ```sh
-minisign -Vm madblocks-btcvm-wallet-<version>-x64.exe -P RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4
+minisign -Vm madblocks-metal-wallet-<version>-x64.exe -P RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4
 ```
 
 or `cargo run -p release-tool -- verify RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4 <exe>`. Its SHA-256 is in the `.sha256` file beside it:

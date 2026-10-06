@@ -40,7 +40,7 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart('v')
           $declared = (Get-Content app/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ($version -ne $declared) { throw "the tag says $version but app/tauri.conf.json says $declared" }
-          $exe = "madblocks-btcvm-wallet-$version-x64.exe"
+          $exe = "madblocks-metal-wallet-$version-x64.exe"
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/release/madblocks-btcvm-wallet.exe "dist/$exe"
           "VERSION=$version" >> $env:GITHUB_ENV
@@ -107,7 +107,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = "release-notes/$env:VERSION.md"
-          $title = "madblocks BTCVM Wallet $env:VERSION"
+          $title = "madblocks Metal Wallet $env:VERSION"
           if (Test-Path $notes) {
             gh release create "${{ github.ref_name }}" (Get-ChildItem dist).FullName --title $title --notes-file $notes --verify-tag
           } else {

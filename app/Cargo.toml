@@ -1,9 +1,9 @@
 [package]
 name = "madblocks-btcvm-wallet"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
-description = "madblocks BTCVM Wallet: Bitcoin and BTCVM on Windows, and the bridge between them."
+description = "madblocks Metal Wallet: Bitcoin and BTCVM, Dogecoin and DogecoinVM on Windows, and the bridges between them."
 authors = ["madblocks <https://madblocks.tech>"]
 license = "MIT"
 publish = false

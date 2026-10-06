@@ -1,5 +1,5 @@
-//! madblocks BTCVM Wallet: Bitcoin and BTCVM on Windows, and the bridge
-//! between them.
+//! madblocks Metal Wallet: Bitcoin and BTCVM, Dogecoin and DogecoinVM on
+//! Windows, and the bridges between them.
 //!
 //! The window is a web view with no network of its own and no plugins: it
 //! calls the commands below and nothing else. Keys stay in Rust. A key shown
@@ -98,40 +98,46 @@ struct Texts {
     cancel: &'static str,
     change_title: &'static str,
     change_body: &'static str,
+    change_title_doge: &'static str,
+    change_body_doge: &'static str,
 }
 
 fn texts(language: &str) -> Texts {
     if language == "es" {
         Texts {
             backup_title: "Tu copia de seguridad",
-            phrase_body: "Estas son las {n} palabras de tu cartera {wallet}:\n\n{words}\n\nApúntalas en papel, en orden, y guárdalas en un sitio seguro. Con ellas recuperas esta cartera aquí, o su dirección de Bitcoin en cualquier wallet compatible con BIP39 (Sparrow, Electrum, BlueWallet…). Quien las vea puede llevarse tus BTC: nunca las compartas ni les hagas fotos. Después te pediremos tres de ellas para comprobar la copia.\n\nLa misma clave en formato WIF, para la wallet web de BTCVM: {key}",
-            backup_body: "Esta es la clave de la cartera {wallet} (WIF):\n\n{key}\n\nGuárdala en un gestor de contraseñas o escríbela en papel. Quien la vea puede llevarse tus BTC; nunca la compartas. Sin ella, si pierdes este PC o se restablece Windows Hello, perderás tus fondos.",
+            phrase_body: "Estas son las {n} palabras de tu cartera {wallet}:\n\n{words}\n\nApúntalas en papel, en orden, y guárdalas en un sitio seguro. Con ellas recuperas esta cartera aquí, o sus direcciones en otras carteras: la de Bitcoin en cualquiera compatible con BIP39 (Sparrow, Electrum, BlueWallet…) y la de Dogecoin en las que siguen BIP44. Quien las vea puede llevarse tus BTC y tus DOGE: nunca las compartas ni les hagas fotos. Después te pediremos tres de ellas para comprobar la copia.\n\nLa clave de Bitcoin en formato WIF, para la cartera web de BTCVM: {key}",
+            backup_body: "Esta es la clave de la cartera {wallet} (WIF):\n\n{key}\n\nEs la clave de sus dos direcciones, la de BTC y la de DOGE. Guárdala en un gestor de contraseñas o escríbela en papel. Quien la vea puede llevarse tus BTC y tus DOGE; nunca la compartas. Sin ella, si pierdes este PC o se restablece Windows Hello, perderás tus fondos.",
             copy: "Copiar la clave",
             copied: "Copiada. Se borrará del portapapeles en un minuto, y Windows no la guarda en el historial del portapapeles (Win+V) ni la sincroniza. Pégala ya en tu gestor de contraseñas.",
             saved: "La he guardado",
             not_yet: "Todavía no",
             remove_title: "Quitar la cartera de este PC",
-            remove_body: "Se borrará de este PC la clave de la cartera {wallet} (después de Windows Hello). Si no tienes copia de seguridad, perderás sus BTC para siempre. ¿Quitarla?",
+            remove_body: "Se borrará de este PC la clave de la cartera {wallet} (después de Windows Hello). Si no tienes copia de seguridad, perderás sus BTC y sus DOGE para siempre. ¿Quitarla?",
             remove: "Quitar",
             cancel: "Cancelar",
-            change_title: "Han cambiado los firmantes del puente",
-            change_body: "El puente informa de un conjunto de firmantes distinto del que esta wallet tiene fijado.\n\nAntes: {old}\nAhora: {new}\n\nAsí se ve una rotación planificada por los operadores de BTCVM, pero también un servidor secuestrado. Los depósitos y retiradas quedan en pausa hasta que la wallet encuentre el traslado de los fondos firmado por los firmantes antiguos y compruebe sus firmas; lo busca sola cada diez minutos. Los envíos siguen funcionando.\n\nMientras tanto, puedes comprobar el cambio en un explorador de Bitcoin, en metalbtc.com y con madblocks. Tienes los enlaces en la ventana.",
+            change_title: "Han cambiado los firmantes del puente de BTCVM",
+            change_body: "El puente de BTCVM informa de un conjunto de firmantes distinto del que esta cartera tiene fijado.\n\nAntes: {old}\nAhora: {new}\n\nAsí se ve una rotación planificada por los operadores de BTCVM, pero también un servidor secuestrado. Los depósitos y retiradas de BTC quedan en pausa hasta que la cartera encuentre el traslado de los fondos firmado por los firmantes antiguos y compruebe sus firmas; lo busca sola cada diez minutos. Los envíos siguen funcionando.\n\nMientras tanto, puedes comprobar el cambio en un explorador de Bitcoin, en metalbtc.com y con madblocks. Tienes los enlaces en la ventana.",
+            change_title_doge: "Han cambiado los firmantes del puente de DogecoinVM",
+            change_body_doge: "El puente de DogecoinVM informa de un conjunto de firmantes distinto del que esta cartera tiene fijado.\n\nAntes: {old}\nAhora: {new}\n\nAsí se vería un cambio de firmantes hecho por los operadores de DogecoinVM, pero también un servidor secuestrado. Los depósitos y retiradas de DOGE quedan en pausa hasta que una versión nueva de la cartera, firmada por madblocks, incluya los firmantes nuevos. Los envíos siguen funcionando.\n\nMientras tanto, puedes comprobar el cambio en un explorador de Dogecoin, en metaldoge.com y con madblocks. Tienes los enlaces en la ventana.",
         }
     } else {
         Texts {
             backup_title: "Your backup",
-            phrase_body: "These are the {n} words of your wallet {wallet}:\n\n{words}\n\nWrite them on paper, in order, and keep them somewhere safe. They restore this wallet here, or its Bitcoin address in any BIP39 wallet (Sparrow, Electrum, BlueWallet…). Anyone who sees them can take your BTC: never share them or take photos of them. Next you'll be asked for three of them, to check your backup.\n\nThe same key as a WIF, for BTCVM's web wallet: {key}",
-            backup_body: "This is the key of wallet {wallet} (WIF):\n\n{key}\n\nKeep it in a password manager or write it on paper. Anyone who sees it can take your BTC; never share it. Without it, if you lose this PC or Windows Hello is reset, your funds are gone.",
+            phrase_body: "These are the {n} words of your wallet {wallet}:\n\n{words}\n\nWrite them on paper, in order, and keep them somewhere safe. They restore this wallet here, or its addresses in other wallets: its Bitcoin address in any BIP39 wallet (Sparrow, Electrum, BlueWallet…), and its Dogecoin address in those that follow BIP44. Anyone who sees them can take your BTC and your DOGE: never share them or take photos of them. Next you'll be asked for three of them, to check your backup.\n\nThe Bitcoin key as a WIF, for BTCVM's web wallet: {key}",
+            backup_body: "This is the key of wallet {wallet} (WIF):\n\n{key}\n\nIt is the key of both its addresses, BTC's and DOGE's. Keep it in a password manager or write it on paper. Anyone who sees it can take your BTC and your DOGE; never share it. Without it, if you lose this PC or Windows Hello is reset, your funds are gone.",
             copy: "Copy the key",
             copied: "Copied. It will be cleared from the clipboard in a minute, and Windows keeps it out of clipboard history (Win+V) and cloud sync. Paste it into your password manager now.",
             saved: "I've saved it",
             not_yet: "Not yet",
             remove_title: "Remove the wallet from this PC",
-            remove_body: "The key of wallet {wallet} will be deleted from this PC (after Windows Hello). Without a backup, its BTC are gone for good. Remove it?",
+            remove_body: "The key of wallet {wallet} will be deleted from this PC (after Windows Hello). Without a backup, its BTC and DOGE are gone for good. Remove it?",
             remove: "Remove",
             cancel: "Cancel",
-            change_title: "The bridge's signers have changed",
-            change_body: "The bridge reports another signer set than the one pinned in this wallet.\n\nBefore: {old}\nNow: {new}\n\nThat is what a planned rotation by BTCVM's operators looks like, and also what a hijacked server would show. Deposits and withdrawals are paused until the wallet finds the old signers' signed move of the funds and checks their signatures; it looks for it every ten minutes. Sends still work.\n\nMeanwhile, you can check the change on a Bitcoin explorer, at metalbtc.com and with madblocks. The links are in the window.",
+            change_title: "The signers of BTCVM's bridge have changed",
+            change_body: "BTCVM's bridge reports another signer set than the one pinned in this wallet.\n\nBefore: {old}\nNow: {new}\n\nThat is what a planned rotation by BTCVM's operators looks like, and also what a hijacked server would show. BTC deposits and withdrawals are paused until the wallet finds the old signers' signed move of the funds and checks their signatures; it looks for it every ten minutes. Sends still work.\n\nMeanwhile, you can check the change on a Bitcoin explorer, at metalbtc.com and with madblocks. The links are in the window.",
+            change_title_doge: "The signers of DogecoinVM's bridge have changed",
+            change_body_doge: "DogecoinVM's bridge reports another signer set than the one pinned in this wallet.\n\nBefore: {old}\nNow: {new}\n\nThat is what a change of signers by DogecoinVM's operators would look like, and also what a hijacked server would show. DOGE deposits and withdrawals are paused until a new version of the wallet, signed by madblocks, carries the new signers. Sends still work.\n\nMeanwhile, you can check the change on a Dogecoin explorer, at metaldoge.com and with madblocks. The links are in the window.",
         }
     }
 }
@@ -225,13 +231,17 @@ fn publish(app: &AppHandle, w: &Wallet) {
     }
     if let Some(change) = w.new_signer_change() {
         let t = texts(&w.language());
+        let (title, body) = if change.coin == "doge" {
+            (t.change_title_doge, t.change_body_doge)
+        } else {
+            (t.change_title, t.change_body)
+        };
         app.dialog()
             .message(
-                t.change_body
-                    .replace("{old}", &change.trusted_peg)
+                body.replace("{old}", &change.trusted_peg)
                     .replace("{new}", &change.reported_peg),
             )
-            .title(t.change_title)
+            .title(title)
             .kind(MessageDialogKind::Warning)
             .show(|_| {});
     }
@@ -711,14 +721,14 @@ fn fatal(language: &str, why: &str) -> ! {
     journal::error(&format!("can't start: {why}"));
     let (title, text) = if language == "es" {
         (
-            "madblocks BTCVM Wallet no puede arrancar",
+            "madblocks Metal Wallet no puede arrancar",
             format!(
                 "{why}\n\nSi falta Microsoft Edge WebView2 Runtime, instálalo desde https://go.microsoft.com/fwlink/p/?LinkId=2124703 y vuelve a abrir la wallet. Tus carteras no se han tocado."
             ),
         )
     } else {
         (
-            "madblocks BTCVM Wallet can't start",
+            "madblocks Metal Wallet can't start",
             format!(
                 "{why}\n\nIf Microsoft Edge WebView2 Runtime is missing, install it from https://go.microsoft.com/fwlink/p/?LinkId=2124703 and open the wallet again. Your wallets weren't touched."
             ),

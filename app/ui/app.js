@@ -1,4 +1,4 @@
-// The window of madblocks BTCVM Wallet. It shows what the Rust side sends
+// The window of madblocks Metal Wallet. It shows what the Rust side sends
 // and asks it to act. Keys never come here, and nothing from the bridge is
 // ever inserted as HTML: every value goes in as text.
 
@@ -86,7 +86,7 @@ const STRINGS = {
     security: 'Seguridad',
     securityText: 'La clave se descifra solo para firmar, tras Windows Hello, y nunca llega a esta ventana. Las direcciones de depósito y la reserva del puente se calculan aquí a partir de los firmantes fijados en la wallet; el servidor no puede redirigir un pago. Cada moneda se comprueba contra la transacción que la creó y las comisiones tienen tope.',
     aboutTitle: 'Acerca de',
-    aboutText: 'madblocks BTCVM Wallet la ha creado madblocks, block producer de XPR Network y validador de Metal Blockchain. Es gratuita; si te resulta útil, apoya a madblocks:',
+    aboutText: 'madblocks Metal Wallet la ha creado madblocks, block producer de XPR Network y validador de Metal Blockchain. Es gratuita; si te resulta útil, apoya a madblocks:',
     vote: 'Votar a madblocks en XPR Network', delegate: 'Delegar en el validador de Metal ({node})', website: 'madblocks.tech', xLink: 'Seguir a @madblocksbp en X',
     sourceLink: 'Código fuente y versiones',
     disclaimer: 'Cartera independiente: no la ha hecho ni la avala Metallicus. Usa las API públicas de los puentes de BTCVM y DogecoinVM. Software sin auditar, y los puentes están en pruebas: usa cantidades pequeñas.',
@@ -229,7 +229,7 @@ const STRINGS = {
     security: 'Security',
     securityText: 'The key is decrypted only to sign, after Windows Hello, and never reaches this window. Deposit addresses and the bridge\'s reserve are computed here from the signers pinned in the wallet; the server can\'t redirect a payment. Every coin is checked against the transaction that created it, and fees are capped.',
     aboutTitle: 'About',
-    aboutText: 'madblocks BTCVM Wallet is made by madblocks, XPR Network block producer and Metal Blockchain validator. It\'s free; if it\'s useful to you, support madblocks:',
+    aboutText: 'madblocks Metal Wallet is made by madblocks, XPR Network block producer and Metal Blockchain validator. It\'s free; if it\'s useful to you, support madblocks:',
     vote: 'Vote for madblocks on XPR Network', delegate: 'Delegate to the Metal validator ({node})', website: 'madblocks.tech', xLink: 'Follow @madblocksbp on X',
     sourceLink: 'Source code and releases',
     disclaimer: 'An independent wallet: not made or endorsed by Metallicus. It uses BTCVM\'s and DogecoinVM\'s public bridge APIs. Unaudited software, and the bridges are being tried out: keep amounts small.',

@@ -488,7 +488,8 @@ impl<G: Gate> Vault<G> {
 }
 
 /// Where the wallet keeps its vault: `%LOCALAPPDATA%\madblocks BTCVM Wallet`,
-/// which belongs to the user alone and doesn't roam or sync to OneDrive.
+/// which belongs to the user alone and doesn't roam or sync to OneDrive. It
+/// keeps the name the wallet had until 0.3.0, so no wallet moves.
 #[cfg(windows)]
 pub fn default_dir() -> Result<PathBuf, VaultError> {
     let base = std::env::var_os("LOCALAPPDATA")

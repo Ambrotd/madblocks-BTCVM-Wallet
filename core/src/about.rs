@@ -21,7 +21,7 @@ pub const SOURCE_URL: &str = "https://github.com/Ambrotd/madblocks-BTCVM-Wallet"
 /// The User-Agent the app sends: the wallet and its version, and nothing
 /// about the user.
 pub fn user_agent(version: &str) -> String {
-    format!("madblocks-btcvm-wallet/{version} (+{WEBSITE})")
+    format!("madblocks-metal-wallet/{version} (+{WEBSITE})")
 }
 
 #[cfg(test)]
@@ -34,7 +34,7 @@ mod tests {
         assert!(XPR_VOTE_URL.ends_with(XPR_PRODUCER));
         assert_eq!(
             user_agent("0.1.0"),
-            "madblocks-btcvm-wallet/0.1.0 (+https://madblocks.tech)"
+            "madblocks-metal-wallet/0.1.0 (+https://madblocks.tech)"
         );
     }
 }

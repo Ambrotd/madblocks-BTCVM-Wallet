@@ -1,4 +1,4 @@
-//! Signs madblocks BTCVM Wallet releases (see RELEASING.md).
+//! Signs madblocks Metal Wallet releases (see RELEASING.md).
 //!
 //!     release-tool keygen <dir>
 //!         Makes madblocks' update key: <dir>/madblocks-update.key, encrypted
@@ -60,7 +60,7 @@ fn keygen(dir: &Path) -> Result<(), String> {
         KeyPair::generate_encrypted_keypair(password).map_err(|e| e.to_string())?;
     let sk_box = sk
         .to_box(Some(
-            "madblocks BTCVM Wallet update key (secret): keep it off the repository",
+            "madblocks Metal Wallet update key (secret): keep it off the repository",
         ))
         .map_err(|e| e.to_string())?;
     fs::write(&secret, sk_box.into_string()).map_err(|e| e.to_string())?;
@@ -111,7 +111,7 @@ fn sign(key: &Path, files: &[&str]) -> Result<(), String> {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(file);
-        let comment = format!("madblocks BTCVM Wallet release: {name}");
+        let comment = format!("madblocks Metal Wallet release: {name}");
         let sig = minisign::sign(None, &sk, Cursor::new(&data), Some(&comment), None)
             .map_err(|e| e.to_string())?;
         let out = PathBuf::from(format!("{file}.minisig"));

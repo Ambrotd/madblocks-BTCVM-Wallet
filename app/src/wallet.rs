@@ -1859,8 +1859,7 @@ impl Wallet {
                 hardware: None,
                 software_key_seen: false,
                 doge_address: phrase_doge_address(secret),
-                outgoing: Vec::new(),
-                withdrawals: Vec::new(),
+                ..WalletRecord::default()
             });
             s.active = Some(id.clone());
         });
