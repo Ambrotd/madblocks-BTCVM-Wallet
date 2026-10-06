@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report it privately with [**Report a vulnerability**](https://github.com/Ambrotd/madblocks-BTCVM-Wallet/security/advisories/new) on
+Report it privately with [**Report a vulnerability**](https://github.com/Ambrotd/madblocks-Metal-Wallet/security/advisories/new) on
 this repository's Security tab, not in a public issue. Say what you found, how to reproduce it, and what an attacker could do with it.
 
 Problems in BTCVM itself (the chain, the bridge, its signers) belong to

@@ -20,7 +20,7 @@
 ## Download
 
 The wallet is one standalone exe, with nothing to install: download
-`madblocks-metal-wallet-<version>-x64.exe` (`madblocks-btcvm-wallet-…` up to 0.2.0) from the repository's [Releases](https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases) and open it. It runs on
+`madblocks-metal-wallet-<version>-x64.exe` (`madblocks-btcvm-wallet-…` up to 0.2.0) from the repository's [Releases](https://github.com/Ambrotd/madblocks-Metal-Wallet/releases) and open it. It runs on
 Windows 10 and 11 with Windows Hello set up (a PIN is enough) and Microsoft Edge WebView2 Runtime, which
 Windows 11 has. Your wallets live in `%LOCALAPPDATA%\madblocks BTCVM Wallet` (the folder keeps the wallet's
 first name), not beside the exe: moving or deleting the exe touches no wallet.

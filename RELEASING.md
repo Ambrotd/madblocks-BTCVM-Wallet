@@ -24,7 +24,7 @@ Then:
 
 1. Put the public key it prints in `app/src/update.rs` as `UPDATE_KEY` (done: madblocks' key is
    `RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7a9wqU4`). `RELEASES` there points at this repository's latest release
-   (`https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases/latest/download`). A build without the key
+   (`https://github.com/Ambrotd/madblocks-Metal-Wallet/releases/latest/download`). A build without the key
    doesn't update itself.
 2. In the GitHub repository's Settings > Environments > `BTCVM` (the environment the release job runs
    in), add the secrets `UPDATE_SECRET_KEY` (the whole of `madblocks-update.key`, both lines) and

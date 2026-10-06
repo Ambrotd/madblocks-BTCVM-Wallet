@@ -23,7 +23,7 @@ pub const UPDATE_KEY: &str = "RWRPELLfm+vTRf5eFKLQZdEckDGcPgPOgzrxuH54kCRTuEYSo7
 /// latest release of the wallet's repository (`about::SOURCE_URL`). Empty in
 /// a build that doesn't update itself.
 pub const RELEASES: &str =
-    "https://github.com/Ambrotd/madblocks-BTCVM-Wallet/releases/latest/download";
+    "https://github.com/Ambrotd/madblocks-Metal-Wallet/releases/latest/download";
 
 /// No exe this wallet ships comes near it.
 const MAX_EXE: u64 = 64 << 20;

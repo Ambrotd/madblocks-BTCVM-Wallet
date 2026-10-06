@@ -16,7 +16,7 @@ pub const METAL_VALIDATOR_URL: &str =
     "https://explorer.metalblockchain.org/validators/NodeID-B1hsNPKgi6C89AFybyPFPvDQC2gHxMv7H";
 pub const X_URL: &str = "https://x.com/madblocksbp";
 /// The wallet's source code and its signed releases.
-pub const SOURCE_URL: &str = "https://github.com/Ambrotd/madblocks-BTCVM-Wallet";
+pub const SOURCE_URL: &str = "https://github.com/Ambrotd/madblocks-Metal-Wallet";
 
 /// The User-Agent the app sends: the wallet and its version, and nothing
 /// about the user.
