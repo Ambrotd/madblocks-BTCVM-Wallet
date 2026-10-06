@@ -6,21 +6,23 @@ Report it privately with [**Report a vulnerability**](https://github.com/Ambrotd
 this repository's Security tab, not in a public issue. Say what you found, how to reproduce it, and what an attacker could do with it.
 
 Problems in BTCVM itself (the chain, the bridge, its signers) belong to
-[MetalBlockchain/btc-vm](https://github.com/MetalBlockchain/btc-vm).
+[MetalBlockchain/btc-vm](https://github.com/MetalBlockchain/btc-vm), and those in DogecoinVM to
+[MetalBlockchain/dogecoin-vm](https://github.com/MetalBlockchain/dogecoin-vm).
 
 ## What the wallet protects against
 
-**A dishonest or hijacked bridge server, or a tampered connection.** The wallet uses the bridge's API for
-balances, coins and broadcasting, but nothing that moves coins rests on its word:
+**A dishonest or hijacked bridge server, or a tampered connection.** The wallet uses each bridge's API
+(BTCVM's for BTC, DogecoinVM's for DOGE) for balances, coins and broadcasting, but nothing that moves coins
+rests on its word:
 
 | The server could try to… | The wallet… |
 | --- | --- |
 | hand out its own deposit address | derives your deposit address from the signer set pinned in the wallet, and refuses a different one |
-| point withdrawals at its own address | pays only the reserve made from the pinned signer set, and builds the tag naming your Bitcoin address itself |
+| point withdrawals at its own address | pays only the reserve made from the pinned signer set, and builds the tag naming your Bitcoin or Dogecoin address itself |
 | claim another network or chain | checks `/api/info` against what is pinned, and refuses the bridge |
 | claim another signer set | pauses deposits and withdrawals and warns you, with where to check it (below) |
 | inflate a coin's value to turn it into fee | reads each value from the transaction that created the coin, after checking those bytes hash to its id |
-| push the fee up | caps it at 1,000 sat/vB and 250,000 sats a payment |
+| push the fee up | caps it at 1,000 sat/vB and 250,000 sats a payment on Bitcoin; on Dogecoin and DogecoinVM the fee is fixed by size, and capped at 5 DOGE |
 | get something else signed | shows each payment output by output, signs exactly that, and reads the signed bytes back to compare |
 
 A server can still lie about balances and history, hold back coins or not broadcast a payment. It can
@@ -43,13 +45,14 @@ the address next to it, and the book is checked again each time it's read.
 ## What it doesn't protect against
 
 - **The peg's signers.** BTCVM's bridge is federated: m of n signers hold the locked BTC, and during the
-  alpha one operator holds all the signer keys. The bridge's audit (`/api/status`) shows whether the peg is
-  fully backed, but no wallet can stop the signers moving the locked BTC.
+  alpha one operator holds all the signer keys. DogecoinVM's is 2 of 3. Each bridge's audit
+  (`/api/status`) shows whether its peg is fully backed, but no wallet can stop the signers moving the
+  locked coins.
 - **Malware running as you.** It can't decrypt the key without Windows Hello, but while a payment is being
   signed it could read the process's memory, and at any time it could change what the screen shows or swap
   an address you copied. Check the destination on the review screen against the one you were given, by a
   channel other than the clipboard when it matters.
-- **BTCVM's consensus.** It runs on a single validator during the alpha.
+- **BTCVM's and DogecoinVM's consensus.** BTCVM runs on a single validator during the alpha.
 - **Software that inspects HTTPS.** The app checks the bridge's certificate with Windows, as a browser
   does, so it works behind antivirus or company proxies that inspect TLS (Avast does by default). Such
   software can read the wallet's traffic with the bridge: addresses, balances, signed transactions. It
@@ -86,6 +89,13 @@ set's script. So, deliberately:
 The old signers are trusted to sign only real rotations: that is the bridge's own trust model, since they
 can already move the locked BTC.
 
+**DogecoinVM's bridge** pins its own set (2 of 3) and its peg in the wallet in the same way, and a different
+set pauses DOGE deposits and withdrawals the same way. DogecoinVM has no tagged move of the funds to a new
+set that the wallet could verify yet, so the wallet doesn't follow its rotations: DOGE stays paused between
+the chains until an update of the wallet, signed by madblocks, carries the new set. Meanwhile it warns you
+and links where to check (a Dogecoin explorer, metaldoge.com, madblocks). Sends on Dogecoin and on
+DogecoinVM keep working.
+
 ## Rules for the code
 
 - The core has no `unsafe` code (`#![forbid(unsafe_code)]`) and does no networking: the app fetches, the
@@ -96,9 +106,10 @@ can already move the locked BTC.
 - `scripts/secretscan.sh` refuses WIFs, extended private keys and PEM private keys in any commit. It runs
   as the pre-commit and pre-push hooks and in CI. The test vectors' keys are public (SHA-256 of labels in
   BTCVM's, the keys BIPs 32, 39 and 84 publish in theirs) and are allowed by path.
-- No telemetry. The app's requests go to the bridge you choose and, for what it doesn't serve, to
-  mempool.space: Bitcoin fee estimates and BTC's price, every ten minutes, which say nothing about you (the
-  price only if values are shown); an old transaction a pruned node no longer has (from blockstream.info
+- No telemetry. The app's requests go to the bridge you choose for BTC, to DogecoinVM's (metaldoge.com)
+  for DOGE, and, for what they don't serve, to mempool.space: Bitcoin fee estimates and BTC's price, every
+  ten minutes, which say nothing about you (the price only if values are shown); to CoinGecko for DOGE's
+  price, on the same terms; an old transaction a pruned node no longer has (from blockstream.info
   if mempool.space doesn't answer), which tells that service the transaction's id; the old peg's latest
   transactions while a signer change waits to be checked; and, only if you turn it on in Settings, your
   Bitcoin balance, as a second opinion on the bridge's, which tells mempool.space your address. Every

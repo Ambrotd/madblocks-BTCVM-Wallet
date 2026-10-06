@@ -1,8 +1,8 @@
 <h1 align="center">madblocks BTCVM Wallet</h1>
 
 <p align="center">
-  A Windows wallet for <strong>Bitcoin</strong> and <strong>BTCVM</strong>, and the bridge between them.<br/>
-  One key, one address on both networks, and Windows Hello for every payment.
+  A Windows wallet for <strong>Bitcoin</strong> and <strong>BTCVM</strong>, <strong>Dogecoin</strong> and <strong>DogecoinVM</strong>, and the bridges between them.<br/>
+  One address per coin on both its networks, and Windows Hello for every payment.
 </p>
 
 <p align="center">
@@ -12,10 +12,10 @@
 
 ---
 
-> **Status: public beta.** The core passes BTCVM's own test vectors and those of the BIPs it implements,
-> the vault works with Windows Hello, and the app is tested end to end against stand-ins for the bridge and
-> Windows Hello. Nothing here has had an external audit yet, and BTCVM itself is in alpha with a single
-> operator holding the bridge's keys. Keep amounts small.
+> **Status: public beta.** The core passes BTCVM's and DogecoinVM's own test vectors and those of the BIPs
+> it implements, the vault works with Windows Hello, and the app is tested end to end against stand-ins for
+> the bridges and Windows Hello. Nothing here has had an external audit yet, BTCVM itself is in alpha with a
+> single operator holding the bridge's keys, and DogecoinVM's bridge is new too. Keep amounts small.
 
 ## Download
 
@@ -64,6 +64,21 @@ one-for-one bridge. Payments there are final in about a second and cost a satosh
   first confirmation.
 - **In Spanish and English**, errors included.
 
+### DOGE
+
+[DogecoinVM](https://metaldoge.com) is the same for Dogecoin: a Dogecoin-compatible chain on Metal
+Blockchain, with its own one-for-one bridge. The wallet holds DOGE beside BTC; pick the coin at the top,
+and everything below it (balances, sending, moving between the chains, the activity) is that coin's.
+
+- **One `D…` address on Dogecoin and DogecoinVM.** A wallet made from a recovery phrase takes it from
+  Dogecoin's standard path (BIP 44, `m/44'/3'/0'/0/0`), so the same twelve words restore it in other
+  Dogecoin wallets. A wallet imported from a key (WIF) uses that same key. A phrase wallet made before DOGE
+  asks once for Windows Hello to show its DOGE address.
+- **Move DOGE to DogecoinVM and back** as with BTC: the deposit address and the bridge's reserve are derived
+  from DogecoinVM's signers, pinned in the wallet, and the wallet refuses any other.
+- **Fixed fees**: 0.01 DOGE per kB on Dogecoin, as Dogecoin Core recommends, and 0.001 DOGE per kB on
+  DogecoinVM. Change too small to be worth keeping goes to the fee, as Dogecoin's dust rules expect.
+
 ## Security
 
 [SECURITY.md](SECURITY.md) has the full model, including what the wallet does *not* protect against. In
@@ -77,7 +92,9 @@ short:
   operators looks the same as a hijacked server, so the wallet stops moving coins between the chains until
   it finds the old signers' own move of the funds to the new set and verifies their signatures; then it
   updates itself. Until then it warns you, showing the old and new peg addresses and where to check them (a
-  Bitcoin explorer, metalbtc.com, madblocks). Sends keep working. This is deliberate.
+  Bitcoin explorer, metalbtc.com, madblocks). Sends keep working. This is deliberate. DogecoinVM has no such
+  move the wallet could check yet, so if its signers change, DOGE stays paused between the chains until an
+  update of the wallet, signed by madblocks, carries the new set.
 - **The key stays on your PC**, encrypted to a Windows Hello key held by the TPM and decrypted only to
   sign. It never reaches the app's web view: a key shown for backup appears in a native dialog, and one
   being imported is read from the clipboard by the app, which then clears it.
@@ -94,10 +111,11 @@ short:
 | `tools/release/` | Rust (`release-tool`) | The update key, `latest.json`, and minisign signatures of each release | Done |
 
 The core must agree byte for byte with BTCVM's web wallet (`chain.js` in
-[MetalBlockchain/btc-vm](https://github.com/MetalBlockchain/btc-vm)). Its tests run against the vectors the
-web wallet generates and btcd's script engine verifies (`core/tests/vectors/wallet-vectors.json`, from
-btc-vm's `cmd/btcvm/testdata`), against BIP 350's address vectors, and against the live bridge's
-`/api/info`, saved as a fixture. `scripts/sync-vectors.sh` copies a newer version of the vectors and runs
+[MetalBlockchain/btc-vm](https://github.com/MetalBlockchain/btc-vm)) and DogecoinVM's (in
+[MetalBlockchain/dogecoin-vm](https://github.com/MetalBlockchain/dogecoin-vm)). Its tests run against the
+vectors those web wallets generate and btcd's script engine verifies (`core/tests/vectors/wallet-vectors.json`
+and `doge-wallet-vectors.json`, from each repository's `testdata`), against BIP 350's address vectors, and
+against the live bridges' `/api/info`, saved as fixtures. `scripts/sync-vectors.sh` copies a newer version of the vectors and runs
 the tests. Recovery phrases pass BIP 39's, BIP 32's and BIP 84's own vectors, and the signature digest
 behind following a rotation passes BIP 143's examples.
 
@@ -136,6 +154,6 @@ The wallet is free. If it's useful to you, support the people behind it:
 MIT, see [LICENSE](LICENSE). The madblocks name and logo belong to madblocks and aren't covered by it.
 
 This is an independent wallet by madblocks. It is not made or endorsed by Metallicus, and it uses BTCVM's
-public bridge API. Its design follows [dogecoin-vm-wallet](https://github.com/paulgnz/dogecoin-vm-wallet)
+and DogecoinVM's public bridge APIs. Its design follows [dogecoin-vm-wallet](https://github.com/paulgnz/dogecoin-vm-wallet)
 (MIT), and its transaction code ports BTCVM's web wallet (BSD-3-Clause, Metallicus, Inc.). See
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

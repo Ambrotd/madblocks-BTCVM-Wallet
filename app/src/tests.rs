@@ -514,6 +514,28 @@ fn open_both(btc_trusted: &Signers, doge_trusted: &Signers) -> Both {
     Both { w, btc, doge, gate }
 }
 
+/// `b`'s wallets opened again from their files, as at the next start.
+fn reopen_both(b: &Both, btc_trusted: &Signers, doge_trusted: &Signers) -> Wallet {
+    let (btc, doge) = (b.btc.clone(), b.doge.clone());
+    Wallet::open_with_pins(
+        b.w.data_dir(),
+        "en",
+        Box::new(move |url| {
+            if url == DOGE_SERVER {
+                doge.clone() as Arc<dyn Api>
+            } else {
+                btc.clone() as Arc<dyn Api>
+            }
+        }),
+        b.gate.clone(),
+        pinned(btc_trusted),
+        Pinned {
+            signers: doge_trusted.clone(),
+            ..Pinned::doge_mainnet()
+        },
+    )
+}
+
 #[test]
 fn a_new_wallet_has_twelve_words_and_receives_once_they_are_checked() {
     let trusted = set();
@@ -899,11 +921,28 @@ fn a_key_wallets_doge_address_follows_from_its_btc_one() {
     assert_eq!(view.address.as_deref(), Some(doge_address(&key).as_str()));
     assert!(!view.address_unknown);
     assert_eq!(b.gate.prompts(), prompts);
+    // Its QR code holds it as it is: in base58, capitals would be another.
+    let modules = |text: &str| {
+        let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M)
+            .unwrap();
+        code.to_colors()
+            .iter()
+            .map(|c| if *c == qrcode::Color::Dark { '1' } else { '0' })
+            .collect::<String>()
+    };
+    assert_eq!(
+        b.w.receive_qr().unwrap().modules,
+        modules(&doge_address(&key))
+    );
     // Both coins at a glance; BTC's view is still there.
     assert_eq!(view.coins.len(), 2);
     assert_eq!(
         b.w.set_coin("btc").unwrap().address.as_deref(),
         Some(address(&key).as_str())
+    );
+    assert_eq!(
+        b.w.receive_qr().unwrap().modules,
+        modules(&address(&key).to_ascii_uppercase())
     );
     assert!(b.w.set_coin("ltc").is_err());
 }
@@ -931,24 +970,7 @@ fn a_phrase_wallets_doge_address_is_its_own_and_learned_once() {
         .unwrap()
         .remove("dogeAddress");
     std::fs::write(dir.join("settings.json"), settings.to_string()).unwrap();
-    let (b2, d2) = (b.btc.clone(), b.doge.clone());
-    let w = Wallet::open_with_pins(
-        dir,
-        "en",
-        Box::new(move |url| {
-            if url == DOGE_SERVER {
-                d2.clone() as Arc<dyn Api>
-            } else {
-                b2.clone() as Arc<dyn Api>
-            }
-        }),
-        b.gate.clone(),
-        pinned(&btc.signers),
-        Pinned {
-            signers: doge.signers.clone(),
-            ..Pinned::doge_mainnet()
-        },
-    );
+    let w = reopen_both(&b, &btc.signers, &doge.signers);
     let view = w.view();
     assert_eq!(view.coin, "doge");
     assert!(view.address_unknown && view.address.is_none());
@@ -970,6 +992,29 @@ fn a_phrase_wallets_doge_address_is_its_own_and_learned_once() {
         w.set_coin("btc").unwrap().address.as_deref(),
         Some(address(&btc_key).as_str())
     );
+}
+
+#[test]
+fn a_doge_contact_is_checked_as_dogecoin_and_kept() {
+    let (btc, doge) = (set(), set());
+    let b = open_both(&btc.signers, &doge.signers);
+    b.w.import(
+        "",
+        Zeroizing::new(Key::generate().wif(&MAINNET).to_string()),
+    )
+    .unwrap();
+    let them = doge_address(&Key::generate());
+    assert!(b.w.add_contact("Shibe", &them, "bitcoin").is_err());
+    assert!(
+        b.w.add_contact("Shibe", &address(&Key::generate()), "dogecoin")
+            .is_err()
+    );
+    b.w.add_contact("Shibe", &them, "dogecoin").unwrap();
+    // Read again at the next start, it is still there.
+    let w = reopen_both(&b, &btc.signers, &doge.signers);
+    let book = w.view().address_book;
+    assert_eq!(book.len(), 1);
+    assert_eq!(book[0].address, them);
 }
 
 #[test]

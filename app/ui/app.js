@@ -11,73 +11,77 @@ const STRINGS = {
     receive: 'Recibir', actions: 'Acciones', notices: 'Avisos',
     overAvailable: 'Es más de lo que tienes disponible', overMax: 'Supera el máximo que acepta el puente', underMin: 'Es menos del mínimo',
     balanceTitle: 'Saldo · {name}', offlineBalance: 'Sin conexión con el puente',
-    available: 'disponible: {amount} BTC', youReceiveVm: 'recibirás ≈ {amount} BTC en BTCVM', youReceiveBtc: 'recibirás ≈ {amount} BTC en Bitcoin',
-    receiveIntro: 'Tu dirección es la misma en Bitcoin y en BTCVM: quien te pague elige la red.',
-    depositIntro: 'Pasa BTC de tu saldo de Bitcoin a BTCVM. Llegan cuando el puente ve las confirmaciones que pide (menos para cantidades pequeñas).',
-    withdrawIntro: 'Pasa BTC de BTCVM a una dirección de Bitcoin. El puente la paga descontando la comisión de Bitcoin.',
+    available: 'disponible: {amount} {ticker}', youReceiveVm: 'recibirás ≈ {amount} {ticker} en {vm}', youReceiveBtc: 'recibirás ≈ {amount} {ticker} en {l1}',
+    receiveIntro: 'Tu dirección es la misma en {l1} y en {vm}: quien te pague elige la red.',
+    depositIntro: 'Pasa {ticker} de tu saldo de {l1} a {vm}. Llegan cuando el puente ve las confirmaciones que pide (menos para cantidades pequeñas).',
+    withdrawIntro: 'Pasa {ticker} de {vm} a una dirección de {l1}. El puente la paga descontando la comisión de {l1}.',
     howItWorks: 'Cómo funciona', whichFee: '¿Qué comisión elijo?',
     feeVmShort: 'En BTCVM la comisión es fija y mínima: 1 sat por cada 1000 vB.',
+    feeVmShortDoge: 'En DogecoinVM la comisión es fija y mínima: 0,001 DOGE por kB.',
+    feeDoge: 'Comisión de Dogecoin: 0,01 DOGE por kB, la que recomienda Dogecoin Core. Se paga por tamaño, no por cantidad.',
     activity: 'Actividad', dirIn: 'Recibido', dirOut: 'Enviado', confirmed: 'Confirmado', waitingConf: 'esperando confirmación',
     goReceive: 'Ver mi dirección para recibir', bridgeDetails: 'Detalles del puente', detailsCheck: 'Detalles y dónde comprobarlo',
     changeShort: 'Los depósitos y las retiradas quedan en pausa hasta que la app compruebe que los firmantes antiguos traspasaron los fondos a los nuevos. Los envíos siguen funcionando.',
+    changeShortDoge: 'Los depósitos y las retiradas de DOGE quedan en pausa hasta que una versión nueva de la app incluya los firmantes nuevos. Los envíos siguen funcionando.',
     manageOption: 'Gestionar carteras…', walletInUse: 'Cartera en uso', switchLang: 'Cambiar a inglés (English)',
     importTitle: 'Importar una cartera',
-    importStep1: 'Copia tu frase de 12 o 24 palabras, o tu clave WIF (empieza por K o L).',
+    importStep1: 'Copia tu frase de 12 o 24 palabras, o tu clave WIF (empieza por K, L o Q).',
     importStep2: 'Pulsa «Leer del portapapeles».',
     importStep3: 'La app la lee sin mostrarla en esta ventana y borra el portapapeles. Windows Hello te pedirá el PIN.',
     readClipboard: 'Leer del portapapeles', imported: 'Cartera importada', useOther: 'Usar otra cartera',
     secGeneral: 'General', secWallet: 'Cartera en uso', secNetwork: 'Red y privacidad', secUpdates: 'Actualizaciones', secSupport: 'Soporte',
     about: 'Acerca de', settings: 'Ajustes', connected: 'Conectado', offline: 'Sin conexión',
-    welcomeTitle: 'Tu cartera de Bitcoin y BTCVM',
-    welcomeText: 'Una sola dirección para Bitcoin y BTCVM, protegida con Windows Hello. La cartera se crea en este PC y tendrá una frase de 12 palabras para recuperarla.',
+    welcomeTitle: 'Tu cartera de BTC y DOGE',
+    welcomeText: 'Bitcoin y BTCVM, Dogecoin y DogecoinVM, protegidos con Windows Hello. La cartera se crea en este PC y tendrá una frase de 12 palabras para recuperarla.',
     create: 'Crear una cartera',
     helloTwice: 'Al crear o importar tu primera cartera, Windows Hello te pedirá el PIN dos veces; después, una vez por cartera nueva y una por pago.',
     copy: 'Copiar', copied: 'Dirección copiada',
-    onBitcoin: 'Ver en Bitcoin', onBtcvm: 'Ver en BTCVM',
+    onBitcoin: 'Ver en {l1}', onBtcvm: 'Ver en {vm}',
     blockedReceive: 'Haz la copia de seguridad de tu clave antes de recibir: este PC tiene la única copia.',
     bitcoin: 'Bitcoin', btcvm: 'BTCVM', pending: 'pendiente', loading: 'cargando…',
-    watching: 'Empezando a vigilar tu dirección de Bitcoin…', syncing: 'Se mostrará cuando el nodo de Bitcoin del puente se ponga al día.',
-    unavailable: 'Este puente no sirve saldos de Bitcoin.',
-    send: 'Enviar', deposit: 'Pasar a BTCVM', withdraw: 'Retirar a Bitcoin',
-    network: 'Red', to: 'Destino', amount: 'Cantidad (BTC)', review: 'Revisar',
+    watching: 'Empezando a vigilar tu dirección de {l1}…', syncing: 'Se mostrará cuando el nodo de {l1} del puente se ponga al día.',
+    unavailable: 'Este puente no sirve saldos de {l1}.',
+    send: 'Enviar', deposit: 'Pasar a {vm}', withdraw: 'Retirar a {l1}',
+    network: 'Red', to: 'Destino', amount: 'Cantidad ({ticker})', review: 'Revisar',
     max: 'Máx.', maxHint: 'Todo lo que puedes mover ahora, descontada la comisión (y sin pasar del máximo del puente en un depósito)',
     sendHint: 'Elige la red cada vez: la misma dirección existe en las dos, pero las monedas no.',
-    depositHint: 'Paga desde tu saldo de Bitcoin a tu dirección de depósito personal, calculada aquí con las claves fijadas de los firmantes y comprobada con el puente. BTCVM la acredita tras las confirmaciones que pide el puente (menos para cantidades pequeñas).',
-    limits: 'mínimo {min} BTC', maxCap: 'máximo {max} BTC (límite de la alfa)', vmFeeNote: 'el puente se queda {fee} BTC', payoutFeeNote: 'comisión de Bitcoin ≈ {fee} BTC',
-    withdrawHint: 'Paga la reserva del puente en BTCVM con una etiqueta que nombra tu dirección de Bitcoin. El puente paga allí la cantidad menos la comisión de Bitcoin (hoy unos {fee} BTC).',
-    toThisWallet: 'A esta cartera', toOtherAddress: 'A otra dirección', toOtherHint: 'De Bitcoin, o de tu libreta',
-    btcAddress: 'Dirección de Bitcoin',
+    depositHint: 'Paga desde tu saldo de {l1} a tu dirección de depósito personal, calculada aquí con las claves fijadas de los firmantes y comprobada con el puente. {vm} la acredita tras las confirmaciones que pide el puente (menos para cantidades pequeñas).',
+    limits: 'mínimo {min} {ticker}', maxCap: 'máximo {max} {ticker} (límite actual del puente)', vmFeeNote: 'el puente se queda {fee} {ticker}', payoutFeeNote: 'comisión de {l1} ≈ {fee} {ticker}',
+    withdrawHint: 'Paga la reserva del puente en {vm} con una etiqueta que nombra tu dirección de {l1}. El puente paga allí la cantidad menos la comisión de {l1} (hoy unos {fee} {ticker}).',
+    toThisWallet: 'A esta cartera', toOtherAddress: 'A otra dirección', toOtherHint: 'De {l1}, o de tu libreta',
+    btcAddress: 'Dirección de {l1}',
     paused: 'En pausa: han cambiado los firmantes del puente (ver aviso arriba).',
     inFlight: 'En curso',
     history: 'Historial', noHistory: 'Todavía no hay movimientos.', view: 'Ver',
     unconfirmed: 'sin confirmar', confs: '{n} conf.',
-    bridge: 'El puente', pegPinned: 'Dirección del puente en Bitcoin (fijada en la app)', audit: 'Auditoría: {locked} BTC bloqueados para {circ} BTC en circulación',
+    bridge: 'El puente', pegPinned: 'Dirección del puente en {l1} (fijada en la app)', audit: 'Auditoría: {locked} {ticker} bloqueados para {circ} {ticker} en circulación',
     solvent: 'cubierto', notSolvent: 'NO cubierto', feeRate: 'Comisión de Bitcoin estimada: {rate} sat/vB',
-    reviewTitle: { send: 'Enviar en {chain}', deposit: 'Pasar a BTCVM', withdraw: 'Retirar a Bitcoin', bump: 'Acelerar un pago en Bitcoin' },
+    reviewTitle: { send: 'Enviar en {chain}', deposit: 'Pasar a {vm}', withdraw: 'Retirar a {l1}', bump: 'Acelerar un pago en Bitcoin' },
     role: { pay: 'Pago a', deposit: 'Tu dirección de depósito (comprobada con los firmantes fijados)', reserve: 'Reserva del puente (fijada en la app)', change: 'Cambio: vuelve a ti', tag: 'Etiqueta: el puente paga a', other: 'Otra salida' },
-    fee: 'Comisión de red', total: 'Sale de tu cartera', credited: 'BTCVM acreditará', afterConf: 'tras {n} confirmaciones',
-    payoutFee: 'Comisión de Bitcoin del pago, descontada de lo que recibes (aprox.)',
+    fee: 'Comisión de red', total: 'Sale de tu cartera', credited: '{vm} acreditará', afterConf: 'tras {n} confirmaciones',
+    payoutFee: 'Comisión de {l1} del pago, descontada de lo que recibes (aprox.)',
     confirm: 'Firmar con Windows Hello', cancel: 'Cancelar', waitingHello: 'Esperando a Windows Hello…', working: 'Preparando…',
     sent: 'Enviado. Id: {txid}', helloCanceled: 'Windows Hello cancelado: no se ha firmado nada.',
     untrustedPrefix: 'Comprobación fallida, posible ataque: ',
     kinds: { send: 'Envío', deposit: 'Depósito', withdraw: 'Retirada' },
-    depositStatus: { confirming: 'Confirmando {c}/{r}', waiting_for_capacity: 'Esperando capacidad del puente', crediting: 'Acreditando', credited: 'Acreditado {amt} BTC', held: 'Retenido', refunded: 'Devuelto' },
-    withdrawalStatus: { sending: 'Enviando', pending: 'Pendiente del pago en Bitcoin', paid: 'Pagada: {pays} BTC', unknown: 'Desconocida' },
+    depositStatus: { confirming: 'Confirmando {c}/{r}', waiting_for_capacity: 'Esperando capacidad del puente', crediting: 'Acreditando', credited: 'Acreditado {amt} {ticker}', held: 'Retenido', refunded: 'Devuelto' },
+    withdrawalStatus: { sending: 'Enviando', pending: 'Pendiente del pago en {l1}', paid: 'Pagada: {pays} {ticker}', unknown: 'Desconocida' },
     depositLabel: 'Depósito', withdrawalLabel: 'Retirada a {to}',
     bannerVault: 'No se puede abrir esta cartera', restoreClip: 'Restaurar desde la copia (portapapeles)',
     restoreHint: 'Copia tu frase de recuperación o tu clave WIF y pulsa el botón. Tiene que ser la de esta cartera.',
-    bannerUntrusted: 'El puente no ha pasado las comprobaciones de la wallet', bannerUntrustedText: 'No se firmará nada con este puente. Puede ser un error del servidor o un ataque.',
-    bannerOffline: 'No se puede conectar con el puente',
+    bannerUntrusted: 'El puente de {vm} no ha pasado las comprobaciones de la cartera', bannerUntrustedText: 'No se firmará nada con este puente. Puede ser un error del servidor o un ataque.',
+    bannerOffline: 'No se puede conectar con el puente de {vm}',
     bannerOfflineText: 'Los saldos y el historial pueden no estar al día, y no se puede enviar hasta que vuelva la conexión. La app lo reintenta sola; si sigue así, revisa tu conexión a internet o el servidor en Ajustes.',
-    detail: 'Detalle', bannerPaused: 'Los operadores han pausado el puente.',
-    bannerInsolvent: 'La auditoría del puente indica que el peg no está totalmente cubierto. No muevas fondos entre cadenas.',
+    detail: 'Detalle', bannerPaused: 'Los operadores han pausado el puente de {vm}.',
+    bannerInsolvent: 'La auditoría del puente de {vm} indica que el peg no está totalmente cubierto. No muevas fondos entre cadenas.',
     bannerBackup: 'Haz la copia de seguridad de tu clave', bannerBackupText: 'Hasta entonces no se muestra tu dirección: este PC tiene la única copia de la clave.', backupNow: 'Hacer copia (Windows Hello)',
-    changeTitle: 'Han cambiado los firmantes del puente',
+    changeTitle: 'Han cambiado los firmantes del puente de {vm}',
     tradeoff: 'La contrapartida: si cambian los firmantes del puente, los depósitos y las retiradas se pausan. Una rotación planificada por los operadores de BTCVM se ve igual que un servidor secuestrado. Por eso la app busca la transacción con la que los firmantes antiguos trasladan los fondos al nuevo conjunto y comprueba sus firmas: si la encuentra, se actualiza sola y todo vuelve a funcionar. Mientras no la encuentre, no mueve fondos entre cadenas, te avisa y te dice dónde comprobarlo. Los envíos siguen funcionando. Es intencionado.',
+    tradeoffDoge: 'En DOGE, la contrapartida es mayor: DogecoinVM todavía no traspasa los fondos a un conjunto de firmantes nuevo de forma que la app pueda comprobarlo. Si cambian, la app no mueve DOGE entre Dogecoin y DogecoinVM hasta que una versión nueva, firmada por madblocks, incluya los firmantes nuevos. Te avisa y te dice dónde comprobarlo. Los envíos siguen funcionando. Es intencionado.',
     oldPeg: 'Dirección del puente fijada en la app', newPeg: 'Dirección que informa ahora el puente', keysChanged: '{a} claves nuevas, {r} retiradas',
     checkIt: 'Dónde comprobarlo',
-    sources: { oldPegOnBitcoin: 'El peg antiguo en un explorador de Bitcoin: tras una rotación real, sus BTC se han movido al nuevo (solo los firmantes antiguos podían hacerlo)', newPegOnBitcoin: 'El peg nuevo en un explorador de Bitcoin', rotationProcedure: 'Cómo rotan los firmantes los operadores de BTCVM', btcvmDocs: 'Documentación de BTCVM (metalbtc.com)', btcvmExplorer: 'Explorador de BTCVM (metalbtc.com)', walletMaker: 'madblocks publica cada conjunto de firmantes verificado con las actualizaciones' },
-    server: 'Servidor del puente', save: 'Guardar', reset: 'Por defecto', language: 'Idioma',
+    sources: { oldPegOnBitcoin: 'El peg antiguo en un explorador de Bitcoin: tras una rotación real, sus BTC se han movido al nuevo (solo los firmantes antiguos podían hacerlo)', newPegOnBitcoin: 'El peg nuevo en un explorador de Bitcoin', rotationProcedure: 'Cómo rotan los firmantes los operadores de BTCVM', btcvmDocs: 'Documentación de BTCVM (metalbtc.com)', btcvmExplorer: 'Explorador de BTCVM (metalbtc.com)', walletMaker: 'madblocks publica cada conjunto de firmantes verificado con las actualizaciones', oldPegOnDogecoin: 'El peg antiguo en un explorador de Dogecoin', newPegOnDogecoin: 'El peg nuevo en un explorador de Dogecoin', dogecoinvmSigners: 'Cómo gestionan los firmantes los operadores de DogecoinVM', dogecoinvmDocs: 'Documentación de DogecoinVM (metaldoge.com)', dogecoinvmExplorer: 'Explorador de DogecoinVM (metaldoge.com)' },
+    server: 'Servidor del puente de BTCVM', save: 'Guardar', reset: 'Por defecto', language: 'Idioma',
     backupKey: 'Ver la copia de la cartera en uso (Windows Hello)', removeWallet: 'Quitar la cartera en uso de este PC',
     security: 'Seguridad',
     securityText: 'La clave se descifra solo para firmar, tras Windows Hello, y nunca llega a esta ventana. Las direcciones de depósito y la reserva del puente se calculan aquí a partir de los firmantes fijados en la wallet; el servidor no puede redirigir un pago. Cada moneda se comprueba contra la transacción que la creó y las comisiones tienen tope.',
@@ -85,15 +89,15 @@ const STRINGS = {
     aboutText: 'madblocks BTCVM Wallet la ha creado madblocks, block producer de XPR Network y validador de Metal Blockchain. Es gratuita; si te resulta útil, apoya a madblocks:',
     vote: 'Votar a madblocks en XPR Network', delegate: 'Delegar en el validador de Metal ({node})', website: 'madblocks.tech', xLink: 'Seguir a @madblocksbp en X',
     sourceLink: 'Código fuente y versiones',
-    disclaimer: 'Wallet independiente: no la ha hecho ni la avala Metallicus. Usa la API pública del puente de BTCVM. Software sin auditar y BTCVM está en alfa: usa cantidades pequeñas.',
+    disclaimer: 'Cartera independiente: no la ha hecho ni la avala Metallicus. Usa las API públicas de los puentes de BTCVM y DogecoinVM. Software sin auditar, y los puentes están en pruebas: usa cantidades pequeñas.',
     license: 'Licencia MIT. Versión {v}.', close: 'Cerrar',
     wallets: 'Carteras', book: 'Libreta', mainWallet: 'Principal', walletN: 'Cartera {id}',
     manageWallets: 'Tus carteras',
-    walletsText: 'Cada cartera es una clave distinta, con su propia dirección (la misma en Bitcoin y en BTCVM), su copia de seguridad y su clave de Windows Hello. Para mover fondos entre ellas, envía a la dirección de la otra: aparecen en «Libreta…».',
+    walletsText: 'Cada cartera es una clave distinta, con sus direcciones (la de BTC, la misma en Bitcoin y en BTCVM; la de DOGE, la misma en Dogecoin y en DogecoinVM), su copia de seguridad y su clave de Windows Hello. Para mover fondos entre ellas, envía a la dirección de la otra: aparecen en «Libreta…».',
     active: 'en uso', use: 'Usar', rename: 'Renombrar', newWalletName: 'Nombre de la nueva cartera (opcional)', namePlaceholder: 'Ej.: Ahorro',
     newWallet: 'Crear cartera nueva', importWallet: 'Importar una cartera', needsBackup: 'sin copia de seguridad',
     bookTitle: 'Libreta de direcciones',
-    bookText: 'Nombres para las direcciones a las que pagas. Guarda cada una para la red en la que la usas: la misma dirección existe en Bitcoin y en BTCVM, pero un exchange que solo vigila Bitcoin no verá lo que le envíes en BTCVM.',
+    bookText: 'Nombres para las direcciones a las que pagas. Guarda cada una para la red en la que la usas: la misma dirección existe en {l1} y en {vm}, pero un exchange que solo vigila {l1} no verá lo que le envíes en {vm}.',
     noContacts: 'Todavía no hay direcciones guardadas.', contactName: 'Nombre', contactAddress: 'Dirección', addContact: 'Guardar en la libreta', delete: 'Borrar', newName: 'Nuevo nombre',
     pick: 'Libreta…', myWallets: 'Mis carteras', contactsFor: 'Libreta ({chain})', otherNetwork: 'guardadas para la otra red',
     feeLabel: 'Comisión de Bitcoin', feeFast: 'Rápida (~10 min)', feeHalfHour: 'Normal (~30 min)', feeHour: 'Lenta (~1 h)', feeEconomy: 'Económica (horas)', feeBridge: 'Recomendada (la del puente)', feeCustom: 'Personalizada (sat/vB)',
@@ -107,15 +111,18 @@ const STRINGS = {
     feeInvalid: 'Escribe la comisión en sat/vB: un número entero del 1 al {max}.',
     feeHelp: 'Se paga por tamaño (sat por vbyte), no por cantidad. Una comisión baja no pone en riesgo tus fondos: solo tarda más en confirmarse. Si queda por debajo del mínimo de la red, se rechaza y no sale nada.',
     backupShort: 'Copia de seguridad', removeShort: 'Quitar', sure: '¿Seguro? Pulsa otra vez',
-    incomingDeposit: 'pendiente: +{amount} BTC de tu depósito, cuando el puente lo acredite',
+    incomingDeposit: 'pendiente: +{amount} {ticker} de tu depósito, cuando el puente lo acredite',
     internalTitle: 'Algo ha fallado en la app',
     internalText: 'La app sigue funcionando y no se ha firmado ni enviado nada por ello. El detalle está en el registro; si se repite, envíaselo a madblocks (no contiene claves).',
     openLogs: 'Abrir el registro',
     showQr: 'Código QR', qrTitle: 'Tu dirección en QR',
-    qrText: 'La misma dirección en Bitcoin y en BTCVM: quien te pague elige la red. Comprueba en su pantalla que la dirección que ha leído es esta:',
+    qrText: 'La misma dirección en {l1} y en {vm}: quien te pague elige la red. Comprueba en su pantalla que la dirección que ha leído es esta:',
     exportCsv: 'Exportar CSV', exported: 'Historial guardado',
     currency: 'Mostrar también los valores en', currencyNone: 'No mostrar (no se consulta el precio)',
-    received: 'Recibido: +{amount} BTC en {chain}', receivedPending: 'Llegando: +{amount} BTC en {chain} (sin confirmar)',
+    received: 'Recibido: +{amount} {ticker} en {chain}', receivedPending: 'Llegando: +{amount} {ticker} en {chain} (sin confirmar)',
+    coinPicker: 'Moneda', totalAll: 'Total ≈ {amount}', needsLook: 'requiere atención',
+    dogeAddressText: 'Tu dirección de Dogecoin sale de tu frase de recuperación, con la ruta estándar de Dogecoin: así la misma frase sirve en otras carteras de DOGE. Windows Hello te pedirá el PIN una vez para mostrarla.',
+    showDogeAddress: 'Mostrar mi dirección de Dogecoin (Windows Hello)',
     tpmNo: 'sin TPM certificado',
     softwareKeyTitle: 'Windows no puede certificar que la clave de esta cartera esté en un chip TPM',
     softwareKeyText: 'Tu clave sigue cifrada y cada pago pide Windows Hello, pero la llave que la abre podría estar guardada por software en lugar de en el chip de seguridad. Pasa en equipos sin TPM o con uno antiguo. Un malware con permisos de administrador lo tendría más fácil: para cantidades grandes, usa un equipo con TPM 2.0.',
@@ -147,73 +154,77 @@ const STRINGS = {
     receive: 'Receive', actions: 'Actions', notices: 'Notices',
     overAvailable: 'That\'s more than you have available', overMax: 'That\'s over the most the bridge takes', underMin: 'That\'s under the minimum',
     balanceTitle: 'Balance · {name}', offlineBalance: 'No connection to the bridge',
-    available: 'available: {amount} BTC', youReceiveVm: 'you\'ll get ≈ {amount} BTC on BTCVM', youReceiveBtc: 'you\'ll get ≈ {amount} BTC on Bitcoin',
-    receiveIntro: 'Your address is the same on Bitcoin and BTCVM: whoever pays you chooses the network.',
-    depositIntro: 'Moves BTC from your Bitcoin balance to BTCVM. It arrives once the bridge sees the confirmations it asks for (fewer for small amounts).',
-    withdrawIntro: 'Moves BTC from BTCVM to a Bitcoin address. The bridge pays it, less Bitcoin\'s fee.',
+    available: 'available: {amount} {ticker}', youReceiveVm: 'you\'ll get ≈ {amount} {ticker} on {vm}', youReceiveBtc: 'you\'ll get ≈ {amount} {ticker} on {l1}',
+    receiveIntro: 'Your address is the same on {l1} and {vm}: whoever pays you chooses the network.',
+    depositIntro: 'Moves {ticker} from your {l1} balance to {vm}. It arrives once the bridge sees the confirmations it asks for (fewer for small amounts).',
+    withdrawIntro: 'Moves {ticker} from {vm} to a {l1} address. The bridge pays it, less {l1}\'s fee.',
     howItWorks: 'How it works', whichFee: 'Which fee should I pick?',
     feeVmShort: 'On BTCVM the fee is fixed and tiny: 1 sat per 1000 vB.',
+    feeVmShortDoge: 'On DogecoinVM the fee is fixed and tiny: 0.001 DOGE per kB.',
+    feeDoge: 'Dogecoin fee: 0.01 DOGE per kB, as Dogecoin Core recommends. You pay by size, not by amount.',
     activity: 'Activity', dirIn: 'Received', dirOut: 'Sent', confirmed: 'Confirmed', waitingConf: 'waiting to confirm',
     goReceive: 'Show my address to receive', bridgeDetails: 'Bridge details', detailsCheck: 'Details and where to check',
     changeShort: 'Deposits and withdrawals are paused until the app checks that the old signers handed the funds over to the new ones. Sends keep working.',
+    changeShortDoge: 'DOGE deposits and withdrawals are paused until a new version of the app carries the new signers. Sends keep working.',
     manageOption: 'Manage wallets…', walletInUse: 'Wallet in use', switchLang: 'Switch to Spanish (Español)',
     importTitle: 'Import a wallet',
-    importStep1: 'Copy your 12- or 24-word phrase, or your WIF key (starting with K or L).',
+    importStep1: 'Copy your 12- or 24-word phrase, or your WIF key (starting with K, L or Q).',
     importStep2: 'Press "Read from the clipboard".',
     importStep3: 'The app reads it without showing it in this window, and clears the clipboard. Windows Hello will ask for your PIN.',
     readClipboard: 'Read from the clipboard', imported: 'Wallet imported', useOther: 'Use another wallet',
     secGeneral: 'General', secWallet: 'Wallet in use', secNetwork: 'Network and privacy', secUpdates: 'Updates', secSupport: 'Support',
     about: 'About', settings: 'Settings', connected: 'Connected', offline: 'Offline',
-    welcomeTitle: 'Your Bitcoin and BTCVM wallet',
-    welcomeText: 'One address for Bitcoin and BTCVM, protected by Windows Hello. The wallet is made on this PC and gets a 12-word phrase to restore it.',
+    welcomeTitle: 'Your BTC and DOGE wallet',
+    welcomeText: 'Bitcoin and BTCVM, Dogecoin and DogecoinVM, protected by Windows Hello. The wallet is made on this PC and gets a 12-word phrase to restore it.',
     create: 'Create a wallet',
     helloTwice: 'When you create or import your first wallet, Windows Hello asks for your PIN twice; after that, once per new wallet and once per payment.',
     copy: 'Copy', copied: 'Address copied',
-    onBitcoin: 'View on Bitcoin', onBtcvm: 'View on BTCVM',
+    onBitcoin: 'View on {l1}', onBtcvm: 'View on {vm}',
     blockedReceive: 'Back up your key before receiving: this PC holds the only copy.',
     bitcoin: 'Bitcoin', btcvm: 'BTCVM', pending: 'pending', loading: 'loading…',
-    watching: 'Starting to watch your Bitcoin address…', syncing: 'Shows once the bridge\'s Bitcoin node has caught up.',
-    unavailable: 'This bridge doesn\'t serve Bitcoin balances.',
-    send: 'Send', deposit: 'Move to BTCVM', withdraw: 'Withdraw to Bitcoin',
-    network: 'Network', to: 'To', amount: 'Amount (BTC)', review: 'Review',
+    watching: 'Starting to watch your {l1} address…', syncing: 'Shows once the bridge\'s {l1} node has caught up.',
+    unavailable: 'This bridge doesn\'t serve {l1} balances.',
+    send: 'Send', deposit: 'Move to {vm}', withdraw: 'Withdraw to {l1}',
+    network: 'Network', to: 'To', amount: 'Amount ({ticker})', review: 'Review',
     max: 'Max', maxHint: 'All you can move now, after the fee (and no more than the bridge accepts, for a deposit)',
     sendHint: 'Choose the network each time: the same address exists on both, the coins don\'t.',
-    depositHint: 'Pays from your Bitcoin balance to your personal deposit address, computed here from the signers\' pinned keys and checked against the bridge. BTCVM credits it after the confirmations the bridge asks for (fewer for small amounts).',
-    limits: 'at least {min} BTC', maxCap: 'at most {max} BTC (alpha cap)', vmFeeNote: 'the bridge keeps {fee} BTC', payoutFeeNote: 'Bitcoin fee ≈ {fee} BTC',
-    withdrawHint: 'Pays the bridge\'s reserve on BTCVM with a tag naming your Bitcoin address. The bridge pays the amount there, less Bitcoin\'s fee (about {fee} BTC today).',
-    toThisWallet: 'To this wallet', toOtherAddress: 'To another address', toOtherHint: 'On Bitcoin, or from your address book',
-    btcAddress: 'Bitcoin address',
+    depositHint: 'Pays from your {l1} balance to your personal deposit address, computed here from the signers\' pinned keys and checked against the bridge. {vm} credits it after the confirmations the bridge asks for (fewer for small amounts).',
+    limits: 'at least {min} {ticker}', maxCap: 'at most {max} {ticker} (the bridge\'s current cap)', vmFeeNote: 'the bridge keeps {fee} {ticker}', payoutFeeNote: '{l1} fee ≈ {fee} {ticker}',
+    withdrawHint: 'Pays the bridge\'s reserve on {vm} with a tag naming your {l1} address. The bridge pays the amount there, less {l1}\'s fee (about {fee} {ticker} today).',
+    toThisWallet: 'To this wallet', toOtherAddress: 'To another address', toOtherHint: 'On {l1}, or from your address book',
+    btcAddress: '{l1} address',
     paused: 'Paused: the bridge\'s signers have changed (see the warning above).',
     inFlight: 'In flight',
     history: 'History', noHistory: 'No activity yet.', view: 'View',
     unconfirmed: 'unconfirmed', confs: '{n} conf.',
-    bridge: 'The bridge', pegPinned: 'Peg address (pinned in the wallet)', audit: 'Audit: {locked} BTC locked for {circ} BTC circulating',
+    bridge: 'The bridge', pegPinned: 'Peg address on {l1} (pinned in the wallet)', audit: 'Audit: {locked} {ticker} locked for {circ} {ticker} circulating',
     solvent: 'backed', notSolvent: 'NOT backed', feeRate: 'Bitcoin fee estimate: {rate} sat/vB',
-    reviewTitle: { send: 'Send on {chain}', deposit: 'Move to BTCVM', withdraw: 'Withdraw to Bitcoin', bump: 'Speed up a payment on Bitcoin' },
+    reviewTitle: { send: 'Send on {chain}', deposit: 'Move to {vm}', withdraw: 'Withdraw to {l1}', bump: 'Speed up a payment on Bitcoin' },
     role: { pay: 'Pays', deposit: 'Your deposit address (checked against the pinned signers)', reserve: 'The bridge\'s reserve (pinned in the wallet)', change: 'Change: back to you', tag: 'Tag: the bridge pays', other: 'Other output' },
-    fee: 'Network fee', total: 'Leaves your wallet', credited: 'BTCVM will credit', afterConf: 'after {n} confirmations',
-    payoutFee: 'Bitcoin fee of the payout, taken from what you receive (about)',
+    fee: 'Network fee', total: 'Leaves your wallet', credited: '{vm} will credit', afterConf: 'after {n} confirmations',
+    payoutFee: '{l1} fee of the payout, taken from what you receive (about)',
     confirm: 'Sign with Windows Hello', cancel: 'Cancel', waitingHello: 'Waiting for Windows Hello…', working: 'Preparing…',
     sent: 'Sent. Id: {txid}', helloCanceled: 'Windows Hello canceled: nothing was signed.',
     untrustedPrefix: 'Check failed, possibly an attack: ',
     kinds: { send: 'Payment', deposit: 'Deposit', withdraw: 'Withdrawal' },
-    depositStatus: { confirming: 'Confirming {c}/{r}', waiting_for_capacity: 'Waiting for the bridge\'s capacity', crediting: 'Crediting', credited: 'Credited {amt} BTC', held: 'Held', refunded: 'Refunded' },
-    withdrawalStatus: { sending: 'Sending', pending: 'Waiting for the Bitcoin payout', paid: 'Paid: {pays} BTC', unknown: 'Unknown' },
+    depositStatus: { confirming: 'Confirming {c}/{r}', waiting_for_capacity: 'Waiting for the bridge\'s capacity', crediting: 'Crediting', credited: 'Credited {amt} {ticker}', held: 'Held', refunded: 'Refunded' },
+    withdrawalStatus: { sending: 'Sending', pending: 'Waiting for the {l1} payout', paid: 'Paid: {pays} {ticker}', unknown: 'Unknown' },
     depositLabel: 'Deposit', withdrawalLabel: 'Withdrawal to {to}',
     bannerVault: 'This wallet\'s vault can\'t be opened', restoreClip: 'Restore from the backup (clipboard)',
     restoreHint: 'Copy your recovery phrase or your WIF key and press the button. It must be this wallet\'s.',
-    bannerUntrusted: 'The bridge failed the wallet\'s checks', bannerUntrustedText: 'Nothing will be signed with this bridge. It may be a server fault or an attack.',
-    bannerOffline: 'Can\'t reach the bridge',
+    bannerUntrusted: '{vm}\'s bridge failed the wallet\'s checks', bannerUntrustedText: 'Nothing will be signed with this bridge. It may be a server fault or an attack.',
+    bannerOffline: 'Can\'t reach {vm}\'s bridge',
     bannerOfflineText: 'Balances and history may be out of date, and nothing can be sent until the connection is back. The app keeps retrying; if it stays like this, check your internet connection or the server in Settings.',
-    detail: 'Detail', bannerPaused: 'The operators have paused the bridge.',
-    bannerInsolvent: 'The bridge\'s audit shows the peg isn\'t fully backed. Don\'t move coins between the chains.',
+    detail: 'Detail', bannerPaused: 'The operators have paused {vm}\'s bridge.',
+    bannerInsolvent: 'The audit of {vm}\'s bridge shows the peg isn\'t fully backed. Don\'t move coins between the chains.',
     bannerBackup: 'Back up your key', bannerBackupText: 'Until then your address isn\'t shown: this PC holds the only copy of the key.', backupNow: 'Back up now (Windows Hello)',
-    changeTitle: 'The bridge\'s signers have changed',
+    changeTitle: 'The signers of {vm}\'s bridge have changed',
     tradeoff: 'The trade-off: if the bridge\'s signers change, deposits and withdrawals pause. A planned rotation by BTCVM\'s operators looks the same as a hijacked server. So the wallet looks for the transaction in which the old signers move the funds to the new set, and checks their signatures: if it finds it, it updates itself and everything works again. Until then, it moves no coins between the chains, warns you and shows where to check. Sends keep working. This is deliberate.',
+    tradeoffDoge: 'For DOGE the trade-off is larger: DogecoinVM doesn\'t yet hand its funds over to a new signer set in a way the app can check. If they change, the app moves no DOGE between Dogecoin and DogecoinVM until a new version, signed by madblocks, carries the new signers. It warns you and shows where to check. Sends keep working. This is deliberate.',
     oldPeg: 'Peg pinned in the wallet', newPeg: 'Peg the bridge reports now', keysChanged: '{a} keys added, {r} removed',
     checkIt: 'Where to check it',
-    sources: { oldPegOnBitcoin: 'The old peg on a Bitcoin explorer: after a real rotation its BTC have moved to the new one (only the old signers could do that)', newPegOnBitcoin: 'The new peg on a Bitcoin explorer', rotationProcedure: 'How BTCVM\'s operators rotate the signers', btcvmDocs: 'BTCVM\'s documentation (metalbtc.com)', btcvmExplorer: 'BTCVM\'s explorer (metalbtc.com)', walletMaker: 'madblocks publish each verified signer set with the wallet\'s updates' },
-    server: 'Bridge server', save: 'Save', reset: 'Default', language: 'Language',
+    sources: { oldPegOnBitcoin: 'The old peg on a Bitcoin explorer: after a real rotation its BTC have moved to the new one (only the old signers could do that)', newPegOnBitcoin: 'The new peg on a Bitcoin explorer', rotationProcedure: 'How BTCVM\'s operators rotate the signers', btcvmDocs: 'BTCVM\'s documentation (metalbtc.com)', btcvmExplorer: 'BTCVM\'s explorer (metalbtc.com)', walletMaker: 'madblocks publish each verified signer set with the wallet\'s updates', oldPegOnDogecoin: 'The old peg on a Dogecoin explorer', newPegOnDogecoin: 'The new peg on a Dogecoin explorer', dogecoinvmSigners: 'How DogecoinVM\'s operators run the signers', dogecoinvmDocs: 'DogecoinVM\'s documentation (metaldoge.com)', dogecoinvmExplorer: 'DogecoinVM\'s explorer (metaldoge.com)' },
+    server: 'BTCVM bridge server', save: 'Save', reset: 'Default', language: 'Language',
     backupKey: 'Show the backup of the wallet in use (Windows Hello)', removeWallet: 'Remove the wallet in use from this PC',
     security: 'Security',
     securityText: 'The key is decrypted only to sign, after Windows Hello, and never reaches this window. Deposit addresses and the bridge\'s reserve are computed here from the signers pinned in the wallet; the server can\'t redirect a payment. Every coin is checked against the transaction that created it, and fees are capped.',
@@ -221,15 +232,15 @@ const STRINGS = {
     aboutText: 'madblocks BTCVM Wallet is made by madblocks, XPR Network block producer and Metal Blockchain validator. It\'s free; if it\'s useful to you, support madblocks:',
     vote: 'Vote for madblocks on XPR Network', delegate: 'Delegate to the Metal validator ({node})', website: 'madblocks.tech', xLink: 'Follow @madblocksbp on X',
     sourceLink: 'Source code and releases',
-    disclaimer: 'An independent wallet: not made or endorsed by Metallicus. It uses BTCVM\'s public bridge API. Unaudited software, and BTCVM is in alpha: keep amounts small.',
+    disclaimer: 'An independent wallet: not made or endorsed by Metallicus. It uses BTCVM\'s and DogecoinVM\'s public bridge APIs. Unaudited software, and the bridges are being tried out: keep amounts small.',
     license: 'MIT license. Version {v}.', close: 'Close',
     wallets: 'Wallets', book: 'Address book', mainWallet: 'Main', walletN: 'Wallet {id}',
     manageWallets: 'Your wallets',
-    walletsText: 'Each wallet is a different key, with its own address (the same on Bitcoin and BTCVM), its own backup and its own Windows Hello key. To move funds between them, send to the other\'s address: they appear under "Address book…".',
+    walletsText: 'Each wallet is a different key, with its addresses (BTC\'s, the same on Bitcoin and BTCVM; DOGE\'s, the same on Dogecoin and DogecoinVM), its own backup and its own Windows Hello key. To move funds between them, send to the other\'s address: they appear under "Address book…".',
     active: 'in use', use: 'Use', rename: 'Rename', newWalletName: 'Name of the new wallet (optional)', namePlaceholder: 'e.g. Savings',
     newWallet: 'Create a new wallet', importWallet: 'Import a wallet', needsBackup: 'not backed up',
     bookTitle: 'Address book',
-    bookText: 'Names for the addresses you pay. Save each for the network you use it on: the same address exists on Bitcoin and BTCVM, but an exchange that only watches Bitcoin won\'t see what you send it on BTCVM.',
+    bookText: 'Names for the addresses you pay. Save each for the network you use it on: the same address exists on {l1} and {vm}, but an exchange that only watches {l1} won\'t see what you send it on {vm}.',
     noContacts: 'No saved addresses yet.', contactName: 'Name', contactAddress: 'Address', addContact: 'Save to the address book', delete: 'Delete', newName: 'New name',
     pick: 'Address book…', myWallets: 'My wallets', contactsFor: 'Address book ({chain})', otherNetwork: 'saved for the other network',
     feeLabel: 'Bitcoin fee', feeFast: 'Fast (~10 min)', feeHalfHour: 'Normal (~30 min)', feeHour: 'Slow (~1 h)', feeEconomy: 'Economy (hours)', feeBridge: 'Recommended (the bridge\'s)', feeCustom: 'Custom (sat/vB)',
@@ -243,15 +254,18 @@ const STRINGS = {
     feeInvalid: 'Enter the fee in sat/vB: a whole number from 1 to {max}.',
     feeHelp: 'You pay by size (sat per vbyte), not by amount. A low fee doesn\'t put your funds at risk: it only takes longer to confirm. Under the network\'s minimum, it\'s refused and nothing is sent.',
     backupShort: 'Back up', removeShort: 'Remove', sure: 'Sure? Click again',
-    incomingDeposit: 'pending: +{amount} BTC from your deposit, once the bridge credits it',
+    incomingDeposit: 'pending: +{amount} {ticker} from your deposit, once the bridge credits it',
     internalTitle: 'Something went wrong inside the wallet',
     internalText: 'The wallet keeps working, and nothing was signed or sent because of it. The details are in the log; if it happens again, send it to madblocks (it holds no keys).',
     openLogs: 'Open the log',
     showQr: 'QR code', qrTitle: 'Your address as a QR code',
-    qrText: 'The same address on Bitcoin and on BTCVM: whoever pays you chooses the network. Check on their screen that the address they read is this one:',
+    qrText: 'The same address on {l1} and on {vm}: whoever pays you chooses the network. Check on their screen that the address they read is this one:',
     exportCsv: 'Export CSV', exported: 'History saved',
     currency: 'Also show values in', currencyNone: 'Don\'t show (the price isn\'t fetched)',
-    received: 'Received: +{amount} BTC on {chain}', receivedPending: 'Coming in: +{amount} BTC on {chain} (unconfirmed)',
+    received: 'Received: +{amount} {ticker} on {chain}', receivedPending: 'Coming in: +{amount} {ticker} on {chain} (unconfirmed)',
+    coinPicker: 'Coin', totalAll: 'Total ≈ {amount}', needsLook: 'needs a look',
+    dogeAddressText: 'Your Dogecoin address comes from your recovery phrase, by Dogecoin\'s standard path: so the same phrase works in other DOGE wallets. Windows Hello will ask for your PIN once to show it.',
+    showDogeAddress: 'Show my Dogecoin address (Windows Hello)',
     tpmNo: 'no certified TPM',
     softwareKeyTitle: 'Windows can\'t certify that this wallet\'s key is in a TPM chip',
     softwareKeyText: 'Your key is still encrypted and every payment asks for Windows Hello, but the key that opens it may be kept in software rather than in the security chip. That happens on PCs without a TPM or with an old one. Malware with administrator rights would have an easier time: for large amounts, use a PC with TPM 2.0.',
@@ -303,28 +317,30 @@ const ERRORS_ES = [
   ['the bridge\'s {} isn\'t an amount', 'el dato «{0}» del puente no es una cantidad'],
   ['the bridge gave a deposit address that doesn\'t follow from the peg\'s signers, so nothing was sent', 'el puente dio una dirección de depósito que no sale de los firmantes del peg, así que no se ha enviado nada'],
   ['the bridge reported transaction {}, but this wallet signed {}', 'el puente informó de la transacción {0}, pero esta wallet firmó {1}'],
-  ['the bridge\'s signers have changed, so moving coins between Bitcoin and BTCVM is paused until the wallet is updated with the new set; sends still work', 'los firmantes del puente han cambiado, así que mover fondos entre Bitcoin y BTCVM queda en pausa hasta que la wallet se actualice con el nuevo conjunto; los envíos siguen funcionando'],
+  ['the bridge\'s signers have changed, so moving coins between {} and {} is paused until the wallet is updated with the new set; sends still work', 'los firmantes del puente han cambiado, así que mover fondos entre {0} y {1} queda en pausa hasta que la cartera se actualice con el nuevo conjunto; los envíos siguen funcionando'],
   ['signer key is not hex', 'la clave de un firmante no está en hexadecimal'],
   ['a signer key appears twice', 'una clave de firmante aparece dos veces'],
   ['invalid signer set', 'conjunto de firmantes no válido'],
   ['signer keys must be compressed public keys', 'las claves de los firmantes deben ser claves públicas comprimidas'],
   // Payments.
-  ['that is the bridge\'s own address; use Move to BTCVM, which pays your personal deposit address', 'esa es la dirección del propio puente; usa «Pasar a BTCVM», que paga a tu dirección de depósito personal'],
-  ['that is the bridge\'s reserve; use Withdraw to Bitcoin, which tags the payment with your Bitcoin address', 'esa es la reserva del puente; usa «Retirar a Bitcoin», que etiqueta el pago con tu dirección de Bitcoin'],
+  ['that is the bridge\'s own address; use Move to {}, which pays your personal deposit address', 'esa es la dirección del propio puente; usa «Pasar a {0}», que paga a tu dirección de depósito personal'],
+  ['that is the bridge\'s reserve; use Withdraw to {}, which tags the payment with your {} address', 'esa es la reserva del puente; usa «Retirar a {0}», que etiqueta el pago con tu dirección de {1}'],
   ['that is the bridge\'s own address; it can\'t be paid directly', 'esa es la dirección del propio puente; no se le puede pagar directamente'],
-  ['the smallest deposit is {} BTC; a smaller one is not credited', 'el depósito mínimo es {0} BTC; uno menor no se acredita'],
-  ['a deposit can be at most {} BTC for now; a larger one is held for a refund', 'por ahora un depósito puede ser como mucho de {0} BTC; uno mayor queda retenido para devolverlo'],
-  ['the smallest withdrawal is {} BTC; a smaller one is not paid', 'la retirada mínima es {0} BTC; una menor no se paga'],
+  ['the smallest deposit is {} {}; a smaller one is not credited', 'el depósito mínimo es {0} {1}; uno menor no se acredita'],
+  ['a deposit can be at most {} {} for now; a larger one is held for a refund', 'por ahora un depósito puede ser como mucho de {0} {1}; uno mayor queda retenido para devolverlo'],
+  ['the smallest withdrawal is {} {}; a smaller one is not paid', 'la retirada mínima es {0} {1}; una menor no se paga'],
   ['a withdrawal can\'t pay the bridge\'s own address', 'una retirada no puede pagar a la dirección del propio puente'],
-  ['the wallet spends only its own native SegWit coins', 'la wallet solo gasta sus propias monedas SegWit nativas'],
-  ['the smallest payment is {} BTC', 'el pago mínimo es {0} BTC'],
+  ['the wallet spends only its own native SegWit coins', 'la cartera solo gasta sus propias monedas SegWit nativas'],
+  ['the wallet spends only its own Dogecoin coins (P2PKH)', 'la cartera solo gasta sus propias monedas de Dogecoin (P2PKH)'],
+  ['the smallest payment is {} {}', 'el pago mínimo es {0} {1}'],
   ['more than 21 million BTC', 'más de 21 millones de BTC'],
+  ['more than 10 billion DOGE', 'más de 10.000 millones de DOGE'],
   ['a fee rate of {} sat/vB looks wrong; refusing', 'una comisión de {0} sat/vB parece un error; no se firma'],
   ['coin values overflow', 'los valores de las monedas se desbordan'],
-  ['not enough confirmed BTC on {}: have {}, need {} including the fee', 'no hay suficientes BTC confirmados en {0}: tienes {1} y hacen falta {2} con la comisión'],
-  ['not enough confirmed BTC on {} to cover the fee', 'no hay suficientes BTC confirmados en {0} para cubrir la comisión'],
-  ['the fee would be {} BTC; refusing to sign', 'la comisión sería de {0} BTC; no se firma'],
-  ['after the fee there are {} BTC, under the minimum of {} BTC', 'tras la comisión quedan {0} BTC, por debajo del mínimo de {1} BTC'],
+  ['not enough confirmed {} on {}: have {}, need {} including the fee', 'no hay suficientes {0} confirmados en {1}: tienes {2} y hacen falta {3} con la comisión'],
+  ['not enough confirmed {} on {} to cover the fee', 'no hay suficientes {0} confirmados en {1} para cubrir la comisión'],
+  ['the fee would be {} {}; refusing to sign', 'la comisión sería de {0} {1}; no se firma'],
+  ['after the fee there are {} {}, under the minimum of {} {}', 'tras la comisión quedan {0} {1}, por debajo del mínimo de {2} {3}'],
   ['no transaction {}', 'no se encuentra la transacción {0}'],
   ['transaction {} is not hex', 'la transacción {0} no está en hexadecimal'],
   ['the server sent the wrong transaction for {}', 'el servidor envió una transacción equivocada para {0}'],
@@ -345,7 +361,11 @@ const ERRORS_ES = [
   ['your {} balance hasn\'t loaded yet', 'tu saldo de {0} aún no se ha cargado'],
   ['unknown action', 'acción desconocida'],
   ['unknown network', 'red desconocida'],
-  ['enter an amount like 0.0025', 'escribe una cantidad como 0.0025'],
+  ['enter an amount like {}', 'escribe una cantidad como {0}'],
+  ['{} isn\'t one of this bridge\'s chains', '{0} no es una de las cadenas de este puente'],
+  ['unknown coin', 'moneda desconocida'],
+  ['this wallet\'s DOGE address comes from its recovery phrase: show it once with Windows Hello first', 'la dirección DOGE de esta cartera sale de su frase de recuperación: muéstrala antes una vez con Windows Hello'],
+  ['only an address on a coin\'s own chain is registered', 'solo se registra una dirección de la cadena propia de una moneda'],
   // Addresses and keys.
   ['malformed destination', 'destino mal formado'],
   ['unsupported SegWit address', 'dirección SegWit no admitida'],
@@ -464,11 +484,30 @@ let tabChosen = false;
 let addressShown = null;
 /** The <details> the user opened, so redraws keep them open. */
 const openDetails = new Set();
+/** The coin and address state the actions were drawn for. */
+let actionsFor = null;
 
+/** Each coin's names, and what an address and an amount look like on it. */
+const COINS = {
+  btc: { key: 'btc', ticker: 'BTC', l1: 'bitcoin', vm: 'btcvm', l1Name: 'Bitcoin', vmName: 'BTCVM', placeholder: 'bc1q…', amounts: { send: '0.0001', deposit: '0.0005', withdraw: '0.0002' } },
+  doge: { key: 'doge', ticker: 'DOGE', l1: 'dogecoin', vm: 'dogecoinvm', l1Name: 'Dogecoin', vmName: 'DogecoinVM', placeholder: 'D…', amounts: { send: '10', deposit: '25', withdraw: '10' } },
+};
+const CHAIN_NAMES = { bitcoin: 'Bitcoin', btcvm: 'BTCVM', dogecoin: 'Dogecoin', dogecoinvm: 'DogecoinVM' };
+/** The coin shown. */
+const coinShown = () => COINS[view && view.coin] || COINS.btc;
+/** The coin whose chain `chain` is. */
+const coinOf = (chain) => (chain === 'dogecoin' || chain === 'dogecoinvm' ? COINS.doge : COINS.btc);
+const isVm = (chain) => chain === 'btcvm' || chain === 'dogecoinvm';
+/** What a coin's names fill in a text: its ticker, its own chain and its VM. */
+const coinVars = (c) => ({ ticker: c.ticker, l1: c.l1Name, vm: c.vmName });
+
+/** A text in the window's language, with `vars` and the coin shown's names
+ *  filled in. */
 function t(key, vars) {
   let s = key.split('.').reduce((o, k) => (o == null ? o : o[k]), STRINGS[lang]);
   if (s == null) s = key.split('.').reduce((o, k) => (o == null ? o : o[k]), STRINGS.en) ?? key;
-  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+  if (typeof s !== 'string') return s;
+  for (const [k, v] of Object.entries({ ...coinVars(coinShown()), ...vars })) s = s.replaceAll(`{${k}}`, String(v));
   return s;
 }
 
@@ -503,12 +542,16 @@ function h(tag, attrs, ...children) {
 
 const $ = (id) => document.getElementById(id);
 
-/** A BTC amount's value in the chosen currency, or null. */
-function fiat(btc) {
-  if (!view || !view.fiat || btc == null) return null;
-  const value = Number(btc) * view.fiat.price;
-  if (!Number.isFinite(value)) return null;
-  return new Intl.NumberFormat(lang === 'es' ? 'es-ES' : 'en-US', { style: 'currency', currency: view.fiat.currency }).format(value);
+/** A value in `currency` ("EUR" or "USD") as text, or null. */
+function money(value, currency) {
+  if (!Number.isFinite(value) || !['EUR', 'USD'].includes(currency)) return null;
+  return new Intl.NumberFormat(lang === 'es' ? 'es-ES' : 'en-US', { style: 'currency', currency }).format(value);
+}
+
+/** An amount of the coin shown, in the chosen currency, or null. */
+function fiat(amount) {
+  if (!view || !view.fiat || amount == null) return null;
+  return money(Number(amount) * view.fiat.price, view.fiat.currency);
 }
 const short = (s) => (s && s.length > 20 ? `${s.slice(0, 10)}…${s.slice(-8)}` : s);
 const when = (secs) => (secs ? new Date(secs * 1000).toLocaleString(lang, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
@@ -524,23 +567,24 @@ function ago(secs) {
   return rtf.format(Math.round(hours / 24), 'day');
 }
 
-/** BTC as text, like "0.0002", in satoshis, exactly. */
-function toSats(btc) {
-  if (btc == null) return null;
-  const negative = btc.startsWith('-');
-  const [whole, frac = ''] = btc.replace('-', '').split('.');
-  const sats = Number(whole || '0') * 1e8 + Number(`${frac}00000000`.slice(0, 8));
+/** An amount as text, like "0.0002", in its coin's smallest unit (satoshis,
+ *  koinu), exactly: a BigInt, as DOGE amounts can pass 2^53 of them. */
+function toSats(amount) {
+  if (amount == null) return null;
+  const negative = amount.startsWith('-');
+  const [whole, frac = ''] = amount.replace('-', '').split('.');
+  const sats = BigInt(whole || '0') * 100000000n + BigInt(`${frac}00000000`.slice(0, 8));
   return negative ? -sats : sats;
 }
 
 function fromSats(sats) {
-  const n = Math.abs(sats);
-  const frac = String(n % 1e8).padStart(8, '0').replace(/0+$/, '');
-  return `${sats < 0 ? '-' : ''}${Math.floor(n / 1e8)}${frac ? `.${frac}` : ''}`;
+  const n = sats < 0n ? -sats : sats;
+  const frac = String(n % 100000000n).padStart(8, '0').replace(/0+$/, '');
+  return `${sats < 0n ? '-' : ''}${n / 100000000n}${frac ? `.${frac}` : ''}`;
 }
 
-/** An amount typed into `id`, with either decimal mark, in satoshis; null if
- *  it isn't one. */
+/** An amount typed into `id`, with either decimal mark, in its smallest
+ *  unit; null if it isn't one. */
 function typedSats(id) {
   const v = $(id) ? $(id).value.trim().replace(',', '.') : '';
   return /^(\d+(\.\d{0,8})?|\.\d{1,8})$/.test(v) ? toSats(v.startsWith('.') ? `0${v}` : v) : null;
@@ -555,7 +599,7 @@ function nameFor(address) {
   return contact ? contact.name : short(address);
 }
 
-const chainTag = (chain) => h('span', { class: chain === 'btcvm' ? 'tag vm' : 'tag' }, chainLabel(chain));
+const chainTag = (chain) => h('span', { class: isVm(chain) ? 'tag vm' : `tag ${coinOf(chain).key}` }, chainLabel(chain));
 
 /** A <details> that stays open across redraws once the user opens it. */
 function details(key, summary, ...body) {
@@ -625,6 +669,7 @@ function renderChrome() {
   $('lang').textContent = lang === 'es' ? 'EN' : 'ES';
   $('lang').setAttribute('aria-label', t('switchLang'));
   $('banners').setAttribute('aria-label', t('notices'));
+  $('coin-badge').src = `${coinShown().l1}.svg`;
   const net = $('net');
   const online = view && view.bridge.connected && !view.connectionError;
   net.textContent = online ? t('connected') : t('offline');
@@ -661,11 +706,14 @@ function renderBanners() {
   if (b.solvent === false) out.push(banner(true, t('bannerInsolvent')));
   if (b.signerChange) {
     const c = b.signerChange;
+    // The wallet follows a rotation on BTCVM by itself; DogecoinVM's new
+    // signers come with an update.
+    const doge = c.coin === 'doge';
     out.push(banner(true, t('changeTitle'),
-      h('p', {}, t('changeShort')),
-      h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => act(() => invoke('check_rotation')) }, t('checkNow'))),
-      details('signer-change', t('detailsCheck'),
-        h('p', {}, t('tradeoff')),
+      h('p', {}, t(doge ? 'changeShortDoge' : 'changeShort')),
+      doge ? null : h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => act(() => invoke('check_rotation')) }, t('checkNow'))),
+      details(`signer-change-${c.coin}`, t('detailsCheck'),
+        h('p', {}, t(doge ? 'tradeoffDoge' : 'tradeoff')),
         h('p', {}, h('strong', {}, `${t('oldPeg')}: `), h('span', { class: 'mono' }, c.trustedPeg)),
         h('p', {}, h('strong', {}, `${t('newPeg')}: `), h('span', { class: 'mono' }, c.reportedPeg)),
         h('p', { class: 'small' }, t('keysChanged', { a: c.added.length, r: c.removed.length })),
@@ -703,8 +751,8 @@ function renderBanners() {
         link(r.chain === 'btcvm' ? 'tx-btcvm' : 'tx-bitcoin', r.txid, t('viewMove')),
         h('button', { type: 'button', onclick: () => act(() => invoke('rotation_seen')) }, t('understood')))));
   }
-  if (view.bitcoinDisagrees && view.bitcoin) {
-    out.push(banner(false, t('disagreeTitle'), h('p', {}, t('disagreeText', { bridge: view.bitcoin.confirmed, other: view.bitcoinDisagrees }))));
+  if (view.coin === 'btc' && view.l1Disagrees && view.l1) {
+    out.push(banner(false, t('disagreeTitle'), h('p', {}, t('disagreeText', { bridge: view.l1.confirmed, other: view.l1Disagrees }))));
   }
   if (view.hasWallet && view.softwareKeyWarning) {
     out.push(banner(false, t('softwareKeyTitle'), h('p', {}, t('softwareKeyText')),
@@ -719,6 +767,7 @@ function renderWelcome() {
   return h('section', { class: 'card welcome' },
     h('span', { class: 'mark-wrap' },
       h('img', { src: 'madblocks.svg', alt: '', class: 'mark' }),
+      h('img', { src: 'dogecoin.svg', alt: '', class: 'coin-badge left' }),
       h('img', { src: 'bitcoin.svg', alt: '', class: 'coin-badge' })),
     h('h1', {}, t('welcomeTitle')),
     h('p', { class: 'lead muted' }, t('welcomeText')),
@@ -761,6 +810,7 @@ function renderProblem() {
 
 function renderWalletSkeleton() {
   return [
+    h('nav', { class: 'coin-switch', id: 'coins' }),
     h('section', { class: 'card summary', id: 'summary' }),
     h('section', { class: 'card', id: 'actions' }, renderActions()),
     h('section', { class: 'card', id: 'activity' }),
@@ -805,7 +855,15 @@ function refreshMax(action) {
   if (field && field.value && field.dataset.max === field.value) fillMax(field.id, action);
 }
 
+/** What the actions depend on beyond the tab: the coin shown, and whether
+ *  its address is known. */
+const actionsKey = () => JSON.stringify([view.coin, !!view.addressUnknown]);
+
 function renderActions() {
+  actionsFor = actionsKey();
+  // A payment goes on the coin shown's chains: the same side as before.
+  const c = coinShown();
+  if (sendChain !== c.l1 && sendChain !== c.vm) sendChain = isVm(sendChain) ? c.vm : c.l1;
   const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('actions') },
     TABS.map((k) => h('button', {
       type: 'button', role: 'tab', id: `tab-${k}`, class: tab === k ? 'on' : '',
@@ -832,7 +890,14 @@ function selectTab(k, focus = false) {
 
 /** The panel of the tab chosen: receiving, or a form whose Enter reviews. */
 function renderPanel() {
+  const c = coinShown();
   addressShown = view.address || '';
+  // A phrase wallet from before DOGE: its DOGE address is shown once with
+  // Windows Hello, and until then nothing can be done with DOGE.
+  if (view.addressUnknown) {
+    return h('div', {}, h('p', {}, t('dogeAddressText')),
+      h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', onclick: () => act(() => invoke('learn_doge_address')) }, t('showDogeAddress'))));
+  }
   if (tab === 'receive') {
     if (!view.address) {
       return h('div', {}, h('p', {}, t('blockedReceive')),
@@ -844,46 +909,47 @@ function renderPanel() {
       h('div', { class: 'row' },
         h('button', { class: 'primary', type: 'button', onclick: copyAddress }, t('copy')),
         h('button', { type: 'button', onclick: openQr }, t('showQr')),
-        link('address-bitcoin', view.address, t('onBitcoin')),
-        link('address-btcvm', view.address, t('onBtcvm'))));
+        link(`address-${c.l1}`, view.address, t('onBitcoin')),
+        link(`address-${c.vm}`, view.address, t('onBtcvm'))));
   }
   const form = (kind, ...children) => h('form', { class: 'pay', novalidate: true, onsubmit: (e) => { e.preventDefault(); prepare(kind); } }, ...children);
   if (tab === 'send') {
     return form('send',
       h('fieldset', { class: 'segmented' },
         h('legend', {}, t('network')),
-        ['btcvm', 'bitcoin'].map((c) => h('label', {},
-          h('input', { type: 'radio', name: 'send-chain', value: c, checked: sendChain === c ? true : null, onchange: () => { sendChain = c; showSendFee(); refillPickers(); refreshMax('send'); updateHints(); } }),
-          h('span', { class: 'segment-name' }, h('img', { src: c === 'btcvm' ? 'btcvm.svg' : 'bitcoin.svg', alt: '', class: 'coin' }), chainLabel(c)),
-          h('span', { class: 'small muted', 'data-balance': c })))),
+        [c.vm, c.l1].map((chain) => h('label', {},
+          h('input', { type: 'radio', name: 'send-chain', value: chain, checked: sendChain === chain ? true : null, onchange: () => { sendChain = chain; showSendFee(); refillPickers(); refreshMax('send'); updateHints(); } }),
+          h('span', { class: 'segment-name' }, h('img', { src: `${chain}.svg`, alt: '', class: 'coin' }), chainLabel(chain)),
+          h('span', { class: 'small muted', 'data-balance': chain })))),
       h('p', { class: 'small muted' }, t('sendHint')),
       h('label', { for: 'send-to' }, t('to')),
       h('div', { class: 'input-row' },
-        h('input', { id: 'send-to', autocomplete: 'off', spellcheck: 'false', placeholder: 'bc1q…' }),
+        h('input', { id: 'send-to', autocomplete: 'off', spellcheck: 'false', placeholder: c.placeholder }),
         picker('send-to', () => sendChain)),
-      ...amountField('send-amount', '0.0001', 'send'),
-      feeBlock('send'),
-      h('p', { class: 'small muted', id: 'send-vm-fee' }, t('feeVmShort')),
+      ...amountField('send-amount', c.amounts.send, 'send'),
+      c.key === 'btc' ? feeBlock('send') : null,
+      h('p', { class: 'small muted', id: 'send-fixed-fee' }),
       h('div', { class: 'row end' }, h('button', { class: 'primary big', type: 'submit' }, t('review'))));
   }
   if (tab === 'deposit') {
     return form('deposit',
       h('p', { class: 'muted' }, t('depositIntro')),
-      ...amountField('deposit-amount', '0.0005', 'deposit'),
-      feeBlock('deposit'),
+      ...amountField('deposit-amount', c.amounts.deposit, 'deposit'),
+      c.key === 'btc' ? feeBlock('deposit') : h('p', { class: 'small muted' }, t('feeDoge')),
       details('deposit-how', t('howItWorks'), h('p', { class: 'small' }, t('depositHint'))),
       h('p', { class: 'small bad-text', id: 'deposit-paused' }),
       h('div', { class: 'row end' }, h('button', { class: 'primary big', type: 'submit', id: 'deposit-go' }, t('review'))));
   }
-  // To this wallet's own address on Bitcoin unless the user chooses another;
+  // To this wallet's own address on the coin's chain unless the user chooses
+  // another;
   // a wallet whose address isn't shown yet (no backup) can only type one.
   const mine = withdrawMine && !!view.address;
   const shown = (view.wallets || []).find((w) => w.active);
   const other = h('div', { id: 'withdraw-other', hidden: mine ? true : null },
     h('label', { for: 'withdraw-to' }, t('btcAddress')),
     h('div', { class: 'input-row' },
-      h('input', { id: 'withdraw-to', autocomplete: 'off', spellcheck: 'false', placeholder: 'bc1q…' }),
-      picker('withdraw-to', () => 'bitcoin')));
+      h('input', { id: 'withdraw-to', autocomplete: 'off', spellcheck: 'false', placeholder: c.placeholder }),
+      picker('withdraw-to', () => c.l1)));
   return form('withdraw',
     h('p', { class: 'muted' }, t('withdrawIntro')),
     view.address ? h('fieldset', { class: 'segmented' },
@@ -896,7 +962,7 @@ function renderPanel() {
         h('span', { class: 'segment-name' }, name),
         h('span', { class: 'small muted' }, sub)))) : null,
     other,
-    ...amountField('withdraw-amount', '0.0002', 'withdraw'),
+    ...amountField('withdraw-amount', c.amounts.withdraw, 'withdraw'),
     details('withdraw-how', t('howItWorks'), h('p', { class: 'small', id: 'withdraw-hint' })),
     h('p', { class: 'small bad-text', id: 'withdraw-paused' }),
     h('div', { class: 'row end' }, h('button', { class: 'primary big', type: 'submit', id: 'withdraw-go' }, t('review'))));
@@ -931,12 +997,14 @@ function updateActions() {
  *  what will arrive, and the bridge's limits. */
 function updateHints() {
   if (!view) return;
+  const c = coinShown();
   const b = view.bridge;
   const parts = (...xs) => capital(xs.filter(Boolean).join(' · '));
-  for (const c of ['btcvm', 'bitcoin']) {
-    const el = document.querySelector(`[data-balance="${c}"]`);
-    const bal = c === 'btcvm' ? view.btcvm : view.bitcoin;
-    if (el) el.textContent = bal ? `${bal.confirmed} BTC` : '…';
+  const held = (chain) => (isVm(chain) ? view.vm : view.l1);
+  for (const chain of [c.vm, c.l1]) {
+    const el = document.querySelector(`[data-balance="${chain}"]`);
+    const bal = held(chain);
+    if (el) el.textContent = bal ? `${bal.confirmed} ${c.ticker}` : '…';
   }
   // A problem with the amount goes first, in red, before any review.
   const show = (id, problem, ...rest) => {
@@ -945,66 +1013,97 @@ function updateHints() {
   };
   const over = (a, bal) => a != null && bal && a > toSats(bal.confirmed) && t('overAvailable');
   if ($('send-amount-hint')) {
-    const bal = sendChain === 'btcvm' ? view.btcvm : view.bitcoin;
+    const bal = held(sendChain);
     const a = typedSats('send-amount');
     show('send-amount-hint', over(a, bal), bal && t('available', { amount: bal.confirmed }), a && fiat(fromSats(a)) && `≈ ${fiat(fromSats(a))}`);
   }
   if ($('deposit-amount-hint')) {
     const a = typedSats('deposit-amount');
-    const fee = toSats(b.vmFee) || 0;
-    const problem = over(a, view.bitcoin)
+    const fee = toSats(b.vmFee) ?? 0n;
+    const problem = over(a, view.l1)
       || (a && b.maxDeposit && a > toSats(b.maxDeposit) && t('overMax'))
       || (a && b.minDeposit && a < toSats(b.minDeposit) && t('underMin'));
     show('deposit-amount-hint', problem,
       a > fee && `${t('youReceiveVm', { amount: fromSats(a - fee) })}${fee ? ` (${t('vmFeeNote', { fee: b.vmFee })})` : ''}`,
       b.minDeposit && t('limits', { min: b.minDeposit }),
       b.maxDeposit && t('maxCap', { max: b.maxDeposit }),
-      view.bitcoin && t('available', { amount: view.bitcoin.confirmed }));
+      view.l1 && t('available', { amount: view.l1.confirmed }));
   }
   if ($('withdraw-amount-hint')) {
     const a = typedSats('withdraw-amount');
-    const fee = toSats(b.payoutFee) || 0;
-    const problem = over(a, view.btcvm) || (a && b.minPegOut && a < toSats(b.minPegOut) && t('underMin'));
+    const fee = toSats(b.payoutFee) ?? 0n;
+    const problem = over(a, view.vm) || (a && b.minPegOut && a < toSats(b.minPegOut) && t('underMin'));
     show('withdraw-amount-hint', problem,
       a > fee && `${t('youReceiveBtc', { amount: fromSats(a - fee) })}${fee ? ` (${t('payoutFeeNote', { fee: b.payoutFee })})` : ''}`,
       b.minPegOut && t('limits', { min: b.minPegOut }),
-      view.btcvm && t('available', { amount: view.btcvm.confirmed }));
+      view.vm && t('available', { amount: view.vm.confirmed }));
   }
 }
 
-/** The balance first: the total, then each network, with what is pending
- *  there (unconfirmed payments, and on BTCVM deposits not yet credited). */
+/** The coins: each with what the wallet holds of it, the one shown marked,
+ *  and a dot on one whose bridge needs a look. Then what they are all worth,
+ *  once every balance and price is known. */
+function updateCoins() {
+  let worth = 0;
+  let priced = true;
+  const choices = (view.coins || []).filter((s) => COINS[s.coin]).map((s) => {
+    const c = COINS[s.coin];
+    const held = s.l1 && s.vm ? fromSats(toSats(s.l1.confirmed) + toSats(s.vm.confirmed)) : null;
+    if (held == null || s.price == null) priced = false;
+    else worth += Number(held) * s.price;
+    const on = s.coin === view.coin;
+    return h('button', {
+      type: 'button', class: 'coin-choice', 'aria-pressed': on ? 'true' : 'false',
+      onclick: () => { if (!on) act(() => invoke('set_coin', { coin: s.coin })); },
+    },
+    h('img', { src: `${c.l1}.svg`, alt: '', class: 'coin' }),
+    h('span', { class: 'coin-text' },
+      h('span', { class: 'ticker' }, c.ticker),
+      h('span', { class: 'held' }, held == null ? '…' : `${held} ${c.ticker}`)),
+    s.attention ? h('span', { class: 'dot', title: t('needsLook') }, h('span', { class: 'sr' }, t('needsLook'))) : null);
+  });
+  const all = priced && choices.length > 1 ? money(worth, view.fiatChoice) : null;
+  $('coins').setAttribute('aria-label', t('coinPicker'));
+  fill($('coins'), choices, all ? h('span', { class: 'all' }, t('totalAll', { amount: all })) : null);
+}
+
+/** The balance of the coin shown: its total, then each of its networks, with
+ *  what is pending there (unconfirmed payments, and on its VM deposits not
+ *  yet credited). */
 function updateSummary() {
-  const shown = (view.wallets || []).find((w) => w.active);
-  const btc = view.bitcoin;
-  const vm = view.btcvm;
-  const total = btc && vm ? fromSats(toSats(btc.confirmed) + toSats(vm.confirmed)) : null;
+  const c = coinShown();
+  const active = (view.wallets || []).find((w) => w.active);
+  const { l1, vm } = view;
+  const total = l1 && vm ? fromSats(toSats(l1.confirmed) + toSats(vm.confirmed)) : null;
   const offline = !!view.connectionError;
   const pendingLine = (bal) => {
     const p = toSats(bal.pending);
-    return p ? h('div', { class: 'small muted' }, `${t('pending')}: ${p > 0 ? '+' : ''}${fromSats(p)} BTC`) : null;
+    return p ? h('div', { class: 'small muted' }, `${t('pending')}: ${p > 0n ? '+' : ''}${fromSats(p)} ${c.ticker}`) : null;
   };
-  const chain = (cls, label, bal, note, extra) => h('div', { class: `chain ${cls}` },
-    h('img', { src: cls === 'vm' ? 'btcvm.svg' : 'bitcoin.svg', alt: '', class: 'coin' }),
+  const chain = (name, bal, note, extra) => h('div', { class: `chain ${isVm(name) ? 'vm' : c.key}` },
+    h('img', { src: `${name}.svg`, alt: '', class: 'coin' }),
     h('div', {},
-      h('div', { class: 'chain-name' }, label),
+      h('div', { class: 'chain-name' }, chainLabel(name)),
       bal
-        ? [h('div', { class: 'chain-amount' }, `${bal.confirmed} BTC`),
+        ? [h('div', { class: 'chain-amount' }, `${bal.confirmed} ${c.ticker}`),
           fiat(bal.confirmed) ? h('div', { class: 'small muted' }, `≈ ${fiat(bal.confirmed)}`) : null,
           pendingLine(bal), extra]
-        : h('div', { class: 'small muted' }, offline ? t('offlineBalance') : note ? tr(t(note)) : t('loading'))));
+        : h('div', { class: 'small muted' }, offline ? t('offlineBalance') : view.addressUnknown ? '—' : note ? tr(t(note)) : t('loading'))));
   fill($('summary'),
-    h('h2', {}, t('balanceTitle', { name: walletName(shown) })),
-    h('div', { class: 'total' }, total ?? '—', ' ', h('small', {}, 'BTC')),
+    h('h2', {}, t('balanceTitle', { name: walletName(active) })),
+    h('div', { class: 'total' }, total ?? '—', ' ', h('small', {}, c.ticker)),
     total && fiat(total) ? h('div', { class: 'muted' }, `≈ ${fiat(total)}`) : null,
     h('div', { class: 'chains' },
-      chain('btc', 'Bitcoin', btc, view.bitcoinNote, null),
-      chain('vm', 'BTCVM', vm, null, view.btcvmIncoming ? h('div', { class: 'small incoming' }, t('incomingDeposit', { amount: view.btcvmIncoming })) : null)));
+      chain(c.l1, l1, view.l1Note, null),
+      chain(c.vm, vm, null, view.vmIncoming ? h('div', { class: 'small incoming' }, t('incomingDeposit', { amount: view.vmIncoming })) : null)));
 }
 
 function updateWallet() {
+  updateCoins();
   updateSummary();
-  if ((tab === 'receive' || tab === 'withdraw') && addressShown !== (view.address || '')) rebuildActions();
+  // Another coin, or its address just learned: the actions are its own.
+  if (actionsFor !== actionsKey()) rebuildActions();
+  else if ((tab === 'receive' || tab === 'withdraw') && addressShown !== (view.address || '')) rebuildActions();
   updateActions();
   refillPickers();
   updateActivity();
@@ -1013,7 +1112,8 @@ function updateWallet() {
 
 /** What is on its way, then what happened, newest first. */
 function updateActivity() {
-  const amount = (sats) => `${fromSats(sats)} BTC`;
+  const c = coinShown();
+  const amount = (units) => `${fromSats(BigInt(units))} ${c.ticker}`;
   const flying = [];
   for (const o of view.inFlight) {
     flying.push(h('li', {},
@@ -1022,21 +1122,21 @@ function updateActivity() {
         h('div', { class: 'small muted' }, `${t('waitingConf')} · ${ago(o.time)}`)),
       h('div', { class: 'row' },
         o.chain === 'bitcoin' ? h('button', { class: 'link', type: 'button', onclick: () => openBump(o) }, t('bump')) : null,
-        link(o.chain === 'btcvm' ? 'tx-btcvm' : 'tx-bitcoin', o.txid, t('view')))));
+        link(`tx-${o.chain}`, o.txid, t('view')))));
   }
   for (const w of view.withdrawals.filter((w) => (w.paymentConfirmations || 0) === 0 && w.status !== 'unknown')) {
     flying.push(h('li', {},
       h('div', { class: 'grow' },
-        h('div', {}, chainTag('bitcoin'), ' ', h('strong', {}, t('withdrawalLabel', { to: nameFor(w.to) }))),
+        h('div', {}, chainTag(c.l1), ' ', h('strong', {}, t('withdrawalLabel', { to: nameFor(w.to) }))),
         h('div', { class: 'small muted' }, t(`withdrawalStatus.${w.status}`, { pays: w.pays || '' }))),
-      w.paymentTxid ? link('tx-bitcoin', w.paymentTxid, t('view')) : link('tx-btcvm', w.txid, t('view'))));
+      w.paymentTxid ? link(`tx-${c.l1}`, w.paymentTxid, t('view')) : link(`tx-${c.vm}`, w.txid, t('view'))));
   }
   for (const d of view.deposits.filter((d) => d.status !== 'credited' || !d.creditTxid)) {
     flying.push(h('li', {},
       h('div', { class: 'grow' },
-        h('div', {}, chainTag('btcvm'), ' ', h('strong', {}, t('depositLabel')), ` · ${d.amount} BTC`),
+        h('div', {}, chainTag(c.vm), ' ', h('strong', {}, t('depositLabel')), ` · ${d.amount} ${c.ticker}`),
         h('div', { class: 'small muted' }, t(`depositStatus.${d.status}`, { c: d.confirmations, r: d.required, amt: d.credited || d.amount }), d.reason ? ` (${d.reason})` : '')),
-      link('tx-bitcoin', d.txid, t('view'))));
+      link(`tx-${c.l1}`, d.txid, t('view'))));
   }
   const done = view.history.map((r) => {
     const out = r.net.startsWith('-');
@@ -1046,9 +1146,9 @@ function updateActivity() {
     return h('li', {},
       h('div', { class: 'grow' },
         h('div', {}, chainTag(r.chain), ' ', h('strong', {}, t(out ? 'dirOut' : 'dirIn')), ' ',
-          h('span', { class: out ? 'minus' : 'plus' }, `${out ? '' : '+'}${r.net} BTC`)),
+          h('span', { class: out ? 'minus' : 'plus' }, `${out ? '' : '+'}${r.net} ${c.ticker}`)),
         h('div', { class: r.confirmations > 0 ? 'small muted' : 'small warn-text' }, status)),
-      link(r.chain === 'btcvm' ? 'tx-btcvm' : 'tx-bitcoin', r.txid, t('view')));
+      link(`tx-${r.chain}`, r.txid, t('view')));
   });
   fill($('activity'),
     h('div', { class: 'row spread' }, h('h2', {}, t('activity')),
@@ -1068,8 +1168,8 @@ function updateBridge() {
   $('bridge').replaceChildren(details('bridge', t('bridgeDetails'),
     b.pegAddress ? h('p', { class: 'small' }, `${t('pegPinned')}: `, h('span', { class: 'mono' }, b.pegAddress)) : null,
     b.locked ? h('p', { class: 'small' }, t('audit', { locked: b.locked, circ: b.circulating }), ' — ', b.solvent ? t('solvent') : t('notSolvent')) : null,
-    b.feeRate ? h('p', { class: 'small muted' }, t('feeRate', { rate: b.feeRate })) : null,
-    h('p', { class: 'small muted' }, view.server)));
+    b.feeRate && view.coin === 'btc' ? h('p', { class: 'small muted' }, t('feeRate', { rate: b.feeRate })) : null,
+    h('p', { class: 'small muted' }, b.server || '')));
 }
 
 function apply(next) {
@@ -1087,9 +1187,9 @@ function apply(next) {
     updateWallet();
     // A wallet with nothing in it yet starts on receiving, once its
     // balances are known, unless the user already picked a tab.
-    if (!tabChosen && view.bitcoin && view.btcvm) {
+    if (!tabChosen && view.l1 && view.vm) {
       tabChosen = true;
-      if (toSats(view.bitcoin.confirmed) + toSats(view.btcvm.confirmed) === 0 && tab !== 'receive') {
+      if (toSats(view.l1.confirmed) + toSats(view.vm.confirmed) === 0n && tab !== 'receive') {
         tab = 'receive';
         rebuildActions();
       }
@@ -1119,12 +1219,14 @@ async function prepare(kind) {
 
 function showReview(r) {
   hideToast();
-  const chainName = r.chain === 'btcvm' ? 'BTCVM' : 'Bitcoin';
+  // The payment's coin's names, whatever the coin shown.
+  const vars = coinVars(coinOf(r.chain));
+  const amount = (value) => `${value} ${r.ticker}`;
   const rows = r.outputs.map((o) => h('tr', {},
     h('td', {}, h('div', {}, t(`role.${o.role}`)),
       o.address ? h('div', { class: 'mono small' }, o.address) : null,
       o.withdrawalTo ? h('div', { class: 'mono small' }, o.withdrawalTo) : null),
-    h('td', { class: 'num' }, o.role === 'tag' ? '' : `${o.value} BTC`)));
+    h('td', { class: 'num' }, o.role === 'tag' ? '' : amount(o.value))));
   const status = h('p', { class: 'small muted' });
   const confirmButton = h('button', { class: 'primary', type: 'button' }, t('confirm'));
   const cancelButton = h('button', { type: 'button' }, t('cancel'));
@@ -1152,15 +1254,15 @@ function showReview(r) {
   else if (r.toKnown === 'bookOtherChain') notes.push(notice(false, t('toBookOther', { name: r.toName })));
   else if (r.toKnown === 'new') notes.push(h('p', { class: 'small muted' }, t('toNew')));
   openModal(
-    h('h2', {}, t(`reviewTitle.${r.kind}`, { chain: chainName })),
+    h('h2', {}, t(`reviewTitle.${r.kind}`, { ...vars, chain: chainLabel(r.chain) })),
     h('p', { class: 'small muted' }, `${t('from')}: ${r.walletName}`),
     ...notes,
     h('table', {}, h('tbody', {}, rows,
-      r.previousFee ? h('tr', {}, h('td', {}, t('previousFee')), h('td', { class: 'num' }, `${r.previousFee} BTC`)) : null,
-      h('tr', {}, h('td', {}, t('fee'), r.feeRate ? ` (${t('feeRateUsed', { rate: r.feeRate })})` : ''), h('td', { class: 'num' }, `${r.fee} BTC`)),
-      h('tr', { class: 'total' }, h('td', {}, t('total')), h('td', { class: 'num' }, `${r.total} BTC`, fiat(r.total) ? h('div', { class: 'small muted' }, `≈ ${fiat(r.total)}`) : null)),
-      r.credited ? h('tr', {}, h('td', {}, t('credited'), r.confirmations ? ` (${t('afterConf', { n: r.confirmations })})` : ''), h('td', { class: 'num' }, `${r.credited} BTC`)) : null,
-      r.payoutFee ? h('tr', {}, h('td', {}, t('payoutFee')), h('td', { class: 'num' }, `${r.payoutFee} BTC`)) : null)),
+      r.previousFee ? h('tr', {}, h('td', {}, t('previousFee')), h('td', { class: 'num' }, amount(r.previousFee))) : null,
+      h('tr', {}, h('td', {}, t('fee'), r.feeRate ? ` (${t('feeRateUsed', { rate: r.feeRate })})` : ''), h('td', { class: 'num' }, amount(r.fee))),
+      h('tr', { class: 'total' }, h('td', {}, t('total')), h('td', { class: 'num' }, amount(r.total), fiat(r.total) ? h('div', { class: 'small muted' }, `≈ ${fiat(r.total)}`) : null)),
+      r.credited ? h('tr', {}, h('td', {}, t('credited', vars), r.confirmations ? ` (${t('afterConf', { n: r.confirmations })})` : ''), h('td', { class: 'num' }, amount(r.credited))) : null,
+      r.payoutFee ? h('tr', {}, h('td', {}, t('payoutFee', vars)), h('td', { class: 'num' }, amount(r.payoutFee))) : null)),
     status,
     h('div', { class: 'row spread' }, cancelButton, confirmButton));
 }
@@ -1181,7 +1283,7 @@ function walletName(w) {
   return w.id === 'main' ? t('mainWallet') : t('walletN', { id: (w.id || '').slice(0, 4) });
 }
 
-const chainLabel = (c) => (c === 'btcvm' ? 'BTCVM' : 'Bitcoin');
+const chainLabel = (chain) => CHAIN_NAMES[chain] || chain;
 
 /** A list that fills in a destination: the other wallets, then the address
  *  book, with the entries saved for the network paid on first. */
@@ -1191,7 +1293,8 @@ function picker(inputId, chainOf) {
     if (!view) return;
     const chain = chainOf();
     const own = (view.wallets || []).filter((w) => !w.active && w.address);
-    const book = view.addressBook || [];
+    // Only the entries of this coin: another coin's address isn't one here.
+    const book = (view.addressBook || []).filter((c) => coinOf(c.chain) === coinOf(chain));
     const key = JSON.stringify([lang, chain, own.map((w) => [w.address, walletName(w)]), book]);
     if (select.dataset.key === key) return;
     select.dataset.key = key;
@@ -1292,11 +1395,18 @@ async function loadFees() {
   for (const prefix of ['send', 'deposit']) { fillFees(prefix); updateFeeNote(prefix); }
 }
 
-/** The fee is chosen only on Bitcoin; BTCVM's is fixed. */
+/** The fee on each chain where it is fixed, as the window explains it. */
+const FIXED_FEE = { btcvm: 'feeVmShort', dogecoin: 'feeDoge', dogecoinvm: 'feeVmShortDoge' };
+
+/** The fee is chosen only on Bitcoin; elsewhere it is fixed, and said. */
 function showSendFee() {
   const bitcoin = sendChain === 'bitcoin';
   if ($('send-fee-block')) $('send-fee-block').hidden = !bitcoin;
-  if ($('send-vm-fee')) $('send-vm-fee').hidden = bitcoin;
+  const note = $('send-fixed-fee');
+  if (note) {
+    note.hidden = bitcoin;
+    note.textContent = FIXED_FEE[sendChain] ? t(FIXED_FEE[sendChain]) : '';
+  }
 }
 
 /** A button that asks for a second click before it acts. */
@@ -1312,6 +1422,7 @@ function twoStep(label, onConfirm) {
 }
 
 function openWallets() {
+  const c = coinShown();
   // After making or importing one: the list again, unless its backup is to
   // be checked first.
   const after = (v) => { if (v && !v.backupCheck) openWallets(); };
@@ -1319,8 +1430,8 @@ function openWallets() {
     h('div', { class: 'grow' },
       h('div', {}, h('strong', {}, walletName(w)), w.active ? h('span', { class: 'tag vm' }, t('active')) : null,
         w.hardware === false ? h('span', { class: 'tag warn' }, t('tpmNo')) : null),
-      h('div', { class: 'mono small muted' }, w.address || t('needsBackup')),
-      h('div', { class: 'small muted' }, `Bitcoin ${w.bitcoin ? w.bitcoin.confirmed : '…'} BTC · BTCVM ${w.btcvm ? w.btcvm.confirmed : '…'} BTC`)),
+      h('div', { class: 'mono small muted' }, w.address || (w.needsBackup ? t('needsBackup') : '…')),
+      h('div', { class: 'small muted' }, `${c.l1Name} ${w.l1 ? w.l1.confirmed : '…'} ${c.ticker} · ${c.vmName} ${w.vm ? w.vm.confirmed : '…'} ${c.ticker}`)),
     h('div', { class: 'row' },
       w.active
         ? [h('button', { type: 'button', onclick: () => act(() => invoke('backup')).then(after) }, t('backupShort')),
@@ -1355,14 +1466,18 @@ function openBook() {
   const book = view.addressBook || [];
   const rows = book.map((c) => h('li', {},
     h('div', { class: 'grow' },
-      h('div', {}, h('strong', {}, c.name), h('span', { class: c.chain === 'btcvm' ? 'tag vm' : 'tag' }, chainLabel(c.chain))),
+      h('div', {}, h('strong', {}, c.name), chainTag(c.chain)),
       h('div', { class: 'mono small' }, c.address)),
     h('div', { class: 'row' },
       h('button', { type: 'button', onclick: () => renameContactDialog(c) }, t('rename')),
       twoStep(t('delete'), () => act(() => invoke('remove_contact', { address: c.address, chain: c.chain })).then((v) => { if (v) openBook(); })))));
   const name = h('input', { id: 'c-name', maxlength: '60', autocomplete: 'off' });
-  const address = h('input', { id: 'c-address', spellcheck: 'false', autocomplete: 'off', placeholder: 'bc1q…' });
-  const chain = h('select', { id: 'c-chain' }, h('option', { value: 'bitcoin' }, 'Bitcoin'), h('option', { value: 'btcvm' }, 'BTCVM'));
+  const coin = coinShown();
+  const address = h('input', { id: 'c-address', spellcheck: 'false', autocomplete: 'off', placeholder: coin.placeholder });
+  // Any coin's chains, the coin shown's first.
+  const chains = [coin.l1, coin.vm, ...Object.keys(CHAIN_NAMES).filter((x) => coinOf(x) !== coin)];
+  const chain = h('select', { id: 'c-chain' }, chains.map((x) => h('option', { value: x }, chainLabel(x))));
+  chain.addEventListener('change', () => { address.placeholder = coinOf(chain.value).placeholder; });
   openModal(
     h('h2', {}, t('bookTitle')),
     h('p', { class: 'small muted' }, t('bookText')),
@@ -1420,7 +1535,7 @@ async function openQr() {
 function openBump(o) {
   openModal(
     h('h2', {}, t('bumpTitle')),
-    h('p', { class: 'small' }, `${t(`kinds.${o.kind}`)} · ${fromSats(o.amount)} BTC → `, h('span', { title: o.to }, nameFor(o.to))),
+    h('p', { class: 'small' }, `${t(`kinds.${o.kind}`)} · ${fromSats(BigInt(o.amount))} BTC → `, h('span', { title: o.to }, nameFor(o.to))),
     h('p', { class: 'small muted' }, t('bumpText')),
     feeBlock('bump'),
     h('div', { class: 'row spread' },
@@ -1513,7 +1628,8 @@ function openSettings() {
     details('security', t('security'),
       view.hasWallet ? h('p', { class: 'small' }, `${t('tpmStatus')}: `, view.hardware === true ? t('tpmCertified') : view.hardware === false ? t('tpmNotCertified') : t('tpmUnknown')) : null,
       h('p', { class: 'small' }, t('securityText')),
-      h('p', { class: 'small' }, t('tradeoff'))),
+      h('p', { class: 'small' }, t('tradeoff')),
+      h('p', { class: 'small' }, t('tradeoffDoge'))),
     h('div', { class: 'row spread' }, h('span'), h('button', { type: 'button', onclick: () => $('modal').close() }, t('close'))));
 }
 
@@ -1562,7 +1678,7 @@ listen('update', (event) => { updateFound = event.payload; updateLater = false; 
 invoke('update_info').then((found) => { if (found) { updateFound = found; if (view) renderBanners(); } }).catch(() => {});
 listen('notice', (event) => {
   const n = event.payload;
-  toast(t(n.confirmed ? 'received' : 'receivedPending', { amount: n.amount, chain: n.chain === 'btcvm' ? 'BTCVM' : 'Bitcoin' }));
+  toast(t(n.confirmed ? 'received' : 'receivedPending', { amount: n.amount, chain: chainLabel(n.chain), ticker: coinOf(n.chain).ticker }));
 });
 invoke('hello', { language: navigator.language || 'en' }).then(apply).catch(showError);
 invoke('refresh').then(apply).catch(showError);

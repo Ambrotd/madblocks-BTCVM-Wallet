@@ -1,12 +1,13 @@
 //! The address book: names for addresses the user pays, kept as BTCVM's web
 //! wallet keeps them (`cmd/btcvm/web/addressbook.js`).
 //!
-//! An entry names an address on one chain. Bitcoin and BTCVM share address
-//! formats, so the chain is what the user said the address is for, not
-//! something read from it: an exchange's Bitcoin deposit address paid on
-//! BTCVM never reaches the exchange. Every address is checked with the
-//! core's decoder before it is stored, and a stored book is checked again
-//! when it is read, so nothing malformed is ever trusted.
+//! An entry names an address on one chain. A coin's own chain and its VM
+//! share address formats (Bitcoin and BTCVM, Dogecoin and DogecoinVM), so the
+//! chain is what the user said the address is for, not something read from
+//! it: an exchange's Bitcoin deposit address paid on BTCVM never reaches the
+//! exchange. Every address is checked with the core's decoder, for its
+//! chain's coin, before it is stored, and a stored book is checked again when
+//! it is read, so nothing malformed is ever trusted.
 
 use crate::address::{Network, decode_address};
 use crate::payment::Chain;
@@ -48,16 +49,11 @@ pub fn canonical(address: &str, net: &Network) -> Result<String> {
     Ok(decode_address(address, net)?.address(net))
 }
 
-/// The book with a new entry, or why it can't be saved.
-pub fn add(
-    book: &[Contact],
-    name: &str,
-    address: &str,
-    chain: Chain,
-    net: &Network,
-) -> Result<Vec<Contact>> {
+/// The book with a new entry, or why it can't be saved. The address must be
+/// one of `chain`'s coin.
+pub fn add(book: &[Contact], name: &str, address: &str, chain: Chain) -> Result<Vec<Contact>> {
     let name = clean_name(name)?;
-    let address = canonical(address, net)?;
+    let address = canonical(address, &chain.coin().network())?;
     if let Some(dup) = book
         .iter()
         .find(|e| e.address == address && e.chain == chain)
@@ -125,10 +121,10 @@ pub fn find<'a>(book: &'a [Contact], address: &str, chain: Chain) -> Option<&'a 
 
 /// Re-reads a stored book as if every entry were typed again: anything
 /// malformed, invalid, duplicated or over the cap is dropped.
-pub fn parse(stored: &[Contact], net: &Network) -> Vec<Contact> {
+pub fn parse(stored: &[Contact]) -> Vec<Contact> {
     let mut book = Vec::new();
     for e in stored {
-        if let Ok(next) = add(&book, &e.name, &e.address, e.chain, net) {
+        if let Ok(next) = add(&book, &e.name, &e.address, e.chain) {
             book = next;
         }
     }
@@ -154,10 +150,10 @@ pub fn lookalike(a: &str, b: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::address::MAINNET;
-
     const A: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
     const B: &str = "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH";
+    /// BIP 44's first Dogecoin address of the "abandon … about" phrase.
+    const D: &str = "DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC";
 
     #[test]
     fn names_are_cleaned_and_bounded() {
@@ -177,12 +173,11 @@ mod tests {
             "Exchange",
             " BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4 ",
             Chain::Bitcoin,
-            &MAINNET,
         )
         .unwrap();
         assert_eq!(book[0].address, A, "stored canonical");
-        assert!(add(&book, "Again", A, Chain::Bitcoin, &MAINNET).is_err());
-        let book = add(&book, "Same key on BTCVM", A, Chain::Btcvm, &MAINNET).unwrap();
+        assert!(add(&book, "Again", A, Chain::Bitcoin).is_err());
+        let book = add(&book, "Same key on BTCVM", A, Chain::Btcvm).unwrap();
         assert_eq!(book.len(), 2);
         assert!(
             add(
@@ -190,10 +185,16 @@ mod tests {
                 "Testnet",
                 "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7",
                 Chain::Bitcoin,
-                &MAINNET
             )
             .is_err()
         );
+        // An address is checked for its chain's coin: a Dogecoin one isn't
+        // a Bitcoin one, nor the other way round.
+        assert!(add(&book, "Doge", D, Chain::Bitcoin).is_err());
+        assert!(add(&book, "Bitcoin", A, Chain::Dogecoin).is_err());
+        let book = add(&book, "Doge", D, Chain::Dogecoinvm).unwrap();
+        assert_eq!(book.len(), 3);
+        let book = remove(&book, D, Chain::Dogecoinvm);
 
         let book = rename(&book, A, Chain::Btcvm, "Mine").unwrap();
         assert_eq!(find(&book, A, Chain::Btcvm).unwrap().name, "Mine");
@@ -226,10 +227,21 @@ mod tests {
                 address: B.into(),
                 chain: Chain::Bitcoin,
             },
+            Contact {
+                name: "Doge".into(),
+                address: D.into(),
+                chain: Chain::Dogecoin,
+            },
+            Contact {
+                name: "Doge saved for Bitcoin".into(),
+                address: D.into(),
+                chain: Chain::Bitcoin,
+            },
         ];
-        let book = parse(&stored, &MAINNET);
-        assert_eq!(book.len(), 1);
-        assert_eq!(book[0].name, "Good");
+        let book = parse(&stored);
+        assert_eq!(book.len(), 2);
+        assert_eq!(book[0].name, "Doge");
+        assert_eq!(book[1].name, "Good");
     }
 
     #[test]

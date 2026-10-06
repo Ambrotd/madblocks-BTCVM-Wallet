@@ -428,6 +428,8 @@ pub struct HistoryRow {
 #[serde(rename_all = "camelCase")]
 pub struct BridgeView {
     pub coin: &'static str,
+    /// The bridge's server.
+    pub server: String,
     pub connected: bool,
     pub trusted: bool,
     pub error: Option<Failure>,
@@ -743,7 +745,7 @@ impl Wallet {
     ) -> Wallet {
         let mut settings = store::load(&dir);
         // The book is checked again each time it's read.
-        settings.address_book = book::parse(&settings.address_book, &MAINNET);
+        settings.address_book = book::parse(&settings.address_book);
         let server = settings
             .server
             .clone()
@@ -933,8 +935,18 @@ impl Wallet {
     pub fn view(&self) -> View {
         let settings = self.settings.guard().clone();
         let coin = self.active_coin();
-        let snap = self.side(coin).snapshot.guard();
         let active = settings.active.clone();
+        let fiat_choice = fiat_choice(&settings, &self.language());
+        // Each coin at a glance, one snapshot at a time: holding two at once
+        // could deadlock with a view for the other coin taken meanwhile.
+        let coins = Coin::ALL
+            .iter()
+            .map(|&c| {
+                let snap = self.side(c).snapshot.guard();
+                self.summary(c, &snap, active.as_ref(), fiat_choice)
+            })
+            .collect();
+        let snap = self.side(coin).snapshot.guard();
         let record = active
             .as_ref()
             .and_then(|id| settings.wallets.iter().find(|w| &w.id == id))
@@ -984,23 +996,10 @@ impl Wallet {
                 }
             })
             .collect();
-        let fiat_choice = fiat_choice(&settings, &self.language());
         let fiat = self.price(coin, fiat_choice).map(|price| Fiat {
             currency: fiat_choice,
             price,
         });
-        // Each coin at a glance; the one shown from the snapshot already held.
-        let coins = Coin::ALL
-            .iter()
-            .map(|&c| {
-                if c == coin {
-                    self.summary(c, &snap, active.as_ref(), fiat_choice)
-                } else {
-                    let other = self.side(c).snapshot.guard();
-                    self.summary(c, &other, active.as_ref(), fiat_choice)
-                }
-            })
-            .collect();
         let address = active.as_ref().and_then(|id| self.address_for(id, coin));
         View {
             version: env!("CARGO_PKG_VERSION"),
@@ -1125,9 +1124,11 @@ impl Wallet {
     }
 
     fn bridge_view(&self, snap: &Snapshot, coin: Coin) -> BridgeView {
+        let server = self.bridge(coin).base().to_string();
         let Some(info) = &snap.info else {
             return BridgeView {
                 coin: coin_key(coin),
+                server,
                 ..BridgeView::default()
             };
         };
@@ -1152,6 +1153,7 @@ impl Wallet {
         let amount = |units: u64| coin.format_amount(units);
         BridgeView {
             coin: coin_key(coin),
+            server,
             connected: true,
             trusted: snap.bridge.is_some(),
             error: snap.bridge_error.clone(),
@@ -2131,7 +2133,7 @@ impl Wallet {
             return fail("that is the bridge's own address; it can't be paid directly");
         }
         let current = self.settings.guard().address_book.clone();
-        let next = book::add(&current, name, &canonical, chain, &net)?;
+        let next = book::add(&current, name, &canonical, chain)?;
         self.update(|s| s.address_book = next);
         Ok(self.view())
     }
@@ -2225,24 +2227,27 @@ impl Wallet {
 
     // --- receiving, values and the history -----------------------------------
 
-    /// The active wallet's address as a QR code, for a phone to scan. In
-    /// capitals: a QR code holds them more compactly, and wallets read them
-    /// as the same address. Just the address, with no "bitcoin:", since it
-    /// is the same on BTCVM.
+    /// The active wallet's address for the coin shown as a QR code, for a
+    /// phone to scan. Just the address, with no "bitcoin:", since it is the
+    /// same on the coin's VM. A BTC address goes in capitals: a QR code holds
+    /// them more compactly, and wallets read them as the same address. A
+    /// DOGE one can't: in base58, case matters.
     pub fn receive_qr(&self) -> Outcome<Qr> {
-        let address = self
-            .view()
+        let view = self.view();
+        let address = view
             .address
             .map_or_else(|| fail("back up your key before receiving"), Ok)?;
-        let code = qrcode::QrCode::with_error_correction_level(
-            address.to_ascii_uppercase().as_bytes(),
-            qrcode::EcLevel::M,
-        )
-        .map_err(|e| Failure {
-            message: format!("the QR code: {e}"),
-            untrusted: false,
-            canceled: false,
-        })?;
+        let text = if view.coin == coin_key(Coin::Btc) {
+            address.to_ascii_uppercase()
+        } else {
+            address.clone()
+        };
+        let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M)
+            .map_err(|e| Failure {
+                message: format!("the QR code: {e}"),
+                untrusted: false,
+                canceled: false,
+            })?;
         Ok(Qr {
             width: code.width(),
             modules: code
