@@ -1,17 +1,21 @@
-//! The wallets end to end, with stand-ins for the bridge's server and for
+//! The wallets end to end, with stand-ins for the bridges' servers and for
 //! Windows Hello: making and backing up wallets, paying, tracking payments,
-//! speeding one up, and following a rotation of the bridge's signers.
+//! speeding one up, following a rotation of the bridge's signers, and the
+//! same for DOGE beside BTC.
 
 use crate::api::{
-    AddressView, Api, ApiError, BridgeStatus, DepositEntry, FeeEstimates, HistoryEntry, ListedTx,
-    PegOutStatus, Prices,
+    AddressView, Api, ApiError, BridgeStatus, DOGE_SERVER, DepositEntry, FeeEstimates,
+    HistoryEntry, ListedTx, PegOutStatus, Prices,
 };
 use crate::wallet::{BackupText, Wallet};
 use btcvm_wallet_core::bridge::{Pinned, Signers};
 use btcvm_wallet_core::encoding::sha256;
 use btcvm_wallet_core::rotation::MIGRATE_TAG;
 use btcvm_wallet_core::tx::{self, witness_sighash};
-use btcvm_wallet_core::{BridgeInfo, Chain, Key, MAINNET, Utxo, decode_address, format_btc};
+use btcvm_wallet_core::{
+    BridgeInfo, Chain, Coin, DOGE_MAINNET, DogeBridgeInfo, Key, MAINNET, Utxo, decode_address,
+    format_btc, seed,
+};
 use btcvm_wallet_vault::{Gate, VaultError};
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use k256::ecdsa::{Signature, SigningKey};
@@ -90,6 +94,8 @@ impl Gate for FakeGate {
 
 #[derive(Default)]
 struct State {
+    /// DogecoinVM's bridge, rather than BTCVM's.
+    doge: bool,
     info: serde_json::Value,
     utxos: HashMap<(Chain, String), Vec<Utxo>>,
     history: HashMap<(Chain, String), Vec<HistoryEntry>>,
@@ -121,7 +127,26 @@ impl Api for FakeApi {
     }
 
     fn info(&self) -> Result<BridgeInfo, ApiError> {
-        Ok(serde_json::from_value(self.state.lock().unwrap().info.clone()).unwrap())
+        let s = self.state.lock().unwrap();
+        if s.doge {
+            return Err(missing("BTCVM bridge here"));
+        }
+        Ok(serde_json::from_value(s.info.clone()).unwrap())
+    }
+
+    fn doge_info(&self) -> Result<DogeBridgeInfo, ApiError> {
+        let s = self.state.lock().unwrap();
+        if !s.doge {
+            return Err(missing("DogecoinVM bridge here"));
+        }
+        Ok(serde_json::from_value(s.info.clone()).unwrap())
+    }
+
+    fn doge_prices(&self) -> Result<Prices, ApiError> {
+        Ok(Prices {
+            usd: 0.2,
+            eur: 0.18,
+        })
     }
 
     fn status(&self) -> Result<BridgeStatus, ApiError> {
@@ -175,11 +200,13 @@ impl Api for FakeApi {
             return Ok(wrong.clone());
         }
         let signers: Signers = serde_json::from_value(s.info["signers"].clone()).unwrap();
-        let dest = decode_address(address, &MAINNET).unwrap();
+        let coin = if s.doge { Coin::Doge } else { Coin::Btc };
+        let net = coin.network();
+        let dest = decode_address(address, &net).unwrap();
         Ok(signers
-            .deposit_destination(&dest)
+            .deposit_destination_for(coin, &dest)
             .unwrap()
-            .address(&MAINNET))
+            .address(&net))
     }
 
     fn deposits(&self, _: &str) -> Result<Vec<DepositEntry>, ApiError> {
@@ -245,9 +272,29 @@ impl FakeApi {
         self.state.lock().unwrap().info = info;
     }
 
+    /// DogecoinVM's bridge, reporting `signers`.
+    fn doge(signers: &Signers) -> Arc<FakeApi> {
+        let api = Arc::new(FakeApi::default());
+        let mut info: serde_json::Value = serde_json::from_str(include_str!(
+            "../../core/tests/fixtures/metaldoge-info-2026-10-06.json"
+        ))
+        .unwrap();
+        let peg = signers.peg_for(Coin::Doge).unwrap().address(&DOGE_MAINNET);
+        info["signers"] = serde_json::to_value(signers).unwrap();
+        info["pegAddress"] = peg.clone().into();
+        info["reserveAddress"] = peg.into();
+        let mut s = api.state.lock().unwrap();
+        s.doge = true;
+        s.info = info;
+        drop(s);
+        api
+    }
+
     /// Confirmed coins of `values` paying `address` on `chain`.
     fn fund(&self, chain: Chain, address: &str, values: &[u64]) {
-        let script = decode_address(address, &MAINNET).unwrap().pk_script();
+        let script = decode_address(address, &chain.coin().network())
+            .unwrap()
+            .pk_script();
         let mut tag = [0u8; 1];
         OsRng.fill_bytes(&mut tag);
         let raw = legacy_tx(
@@ -427,6 +474,44 @@ fn with_key(key: &Key) -> (Wallet, Arc<FakeApi>, Arc<FakeGate>, Set) {
 
 fn address(key: &Key) -> String {
     key.destination().address(&MAINNET)
+}
+
+fn doge_address(key: &Key) -> String {
+    key.p2pkh_destination().address(&DOGE_MAINNET)
+}
+
+/// The wallets with both bridges' stand-ins: BTCVM's and DogecoinVM's, each
+/// pinned to its own set.
+struct Both {
+    w: Wallet,
+    btc: Arc<FakeApi>,
+    doge: Arc<FakeApi>,
+    gate: Arc<FakeGate>,
+}
+
+fn open_both(btc_trusted: &Signers, doge_trusted: &Signers) -> Both {
+    let btc = FakeApi::with(btc_trusted);
+    let doge = FakeApi::doge(doge_trusted);
+    let gate = Arc::new(FakeGate::default());
+    let (b, d) = (btc.clone(), doge.clone());
+    let w = Wallet::open_with_pins(
+        temp_dir(),
+        "en",
+        Box::new(move |url| {
+            if url == DOGE_SERVER {
+                d.clone() as Arc<dyn Api>
+            } else {
+                b.clone() as Arc<dyn Api>
+            }
+        }),
+        gate.clone(),
+        pinned(btc_trusted),
+        Pinned {
+            signers: doge_trusted.clone(),
+            ..Pinned::doge_mainnet()
+        },
+    );
+    Both { w, btc, doge, gate }
 }
 
 #[test]
@@ -790,10 +875,234 @@ fn a_second_opinion_on_the_bitcoin_balance_is_asked_only_when_wanted() {
     api.fund(Chain::Bitcoin, &address(&key), &[100_000]);
     api.state.lock().unwrap().second_opinion = Some(90_000);
     w.refresh();
-    assert!(w.view().bitcoin_disagrees.is_none(), "off unless turned on");
+    assert!(w.view().l1_disagrees.is_none(), "off unless turned on");
     let view = w.set_check_balances(true);
-    assert_eq!(view.bitcoin_disagrees.as_deref(), Some("0.0009"));
+    assert_eq!(view.l1_disagrees.as_deref(), Some("0.0009"));
     api.state.lock().unwrap().second_opinion = None;
     w.refresh();
-    assert!(w.view().bitcoin_disagrees.is_none(), "they agree");
+    assert!(w.view().l1_disagrees.is_none(), "they agree");
+}
+
+// --- DOGE beside BTC ------------------------------------------------------------------
+
+#[test]
+fn a_key_wallets_doge_address_follows_from_its_btc_one() {
+    let (btc, doge) = (set(), set());
+    let b = open_both(&btc.signers, &doge.signers);
+    let key = Key::generate();
+    b.w.import("", Zeroizing::new(key.wif(&MAINNET).to_string()))
+        .unwrap();
+    let prompts = b.gate.prompts();
+    let view = b.w.set_coin("doge").unwrap();
+    assert_eq!(view.coin, "doge");
+    // The same key's P2PKH address, known without Windows Hello.
+    assert_eq!(view.address.as_deref(), Some(doge_address(&key).as_str()));
+    assert!(!view.address_unknown);
+    assert_eq!(b.gate.prompts(), prompts);
+    // Both coins at a glance; BTC's view is still there.
+    assert_eq!(view.coins.len(), 2);
+    assert_eq!(
+        b.w.set_coin("btc").unwrap().address.as_deref(),
+        Some(address(&key).as_str())
+    );
+    assert!(b.w.set_coin("ltc").is_err());
+}
+
+#[test]
+fn a_phrase_wallets_doge_address_is_its_own_and_learned_once() {
+    let (btc, doge) = (set(), set());
+    let b = open_both(&btc.signers, &doge.signers);
+    let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    b.w.import("", Zeroizing::new(phrase.into())).unwrap();
+    // BIP 44's Dogecoin address, as other Dogecoin wallets derive it.
+    let view = b.w.set_coin("doge").unwrap();
+    assert_eq!(
+        view.address.as_deref(),
+        Some("DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC")
+    );
+
+    // A phrase wallet from before DOGE has none recorded: it is learned once,
+    // with one Windows Hello prompt.
+    let dir = b.w.data_dir();
+    let mut settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("settings.json")).unwrap()).unwrap();
+    settings["wallets"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("dogeAddress");
+    std::fs::write(dir.join("settings.json"), settings.to_string()).unwrap();
+    let (b2, d2) = (b.btc.clone(), b.doge.clone());
+    let w = Wallet::open_with_pins(
+        dir,
+        "en",
+        Box::new(move |url| {
+            if url == DOGE_SERVER {
+                d2.clone() as Arc<dyn Api>
+            } else {
+                b2.clone() as Arc<dyn Api>
+            }
+        }),
+        b.gate.clone(),
+        pinned(&btc.signers),
+        Pinned {
+            signers: doge.signers.clone(),
+            ..Pinned::doge_mainnet()
+        },
+    );
+    let view = w.view();
+    assert_eq!(view.coin, "doge");
+    assert!(view.address_unknown && view.address.is_none());
+    assert!(
+        w.prepare_withdrawal(&doge_address(&Key::generate()), "5")
+            .is_err()
+    );
+    let prompts = b.gate.prompts();
+    let view = w.learn_doge_address().unwrap();
+    assert_eq!(b.gate.prompts(), prompts + 1);
+    assert_eq!(
+        view.address.as_deref(),
+        Some("DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC")
+    );
+    assert!(!view.address_unknown);
+    // Its BTC address is BIP 84's, as before.
+    let btc_key = seed::key_for_coin(&seed::parse_words(phrase).unwrap(), Coin::Btc).unwrap();
+    assert_eq!(
+        w.set_coin("btc").unwrap().address.as_deref(),
+        Some(address(&btc_key).as_str())
+    );
+}
+
+#[test]
+fn dogecoin_moves_to_dogecoinvm_and_back() {
+    let (btc, doge) = (set(), set());
+    let b = open_both(&btc.signers, &doge.signers);
+    let key = Key::generate();
+    b.w.import("", Zeroizing::new(key.wif(&MAINNET).to_string()))
+        .unwrap();
+    b.w.set_coin("doge").unwrap();
+    let me = doge_address(&key);
+    b.doge.fund(Chain::Dogecoin, &me, &[5_000_000_000]);
+    b.doge.fund(Chain::Dogecoinvm, &me, &[2_000_000_000]);
+    b.w.refresh();
+    let view = b.w.view();
+    assert_eq!(view.l1.as_ref().unwrap().confirmed, "50");
+    assert_eq!(view.vm.as_ref().unwrap().confirmed, "20");
+
+    // A deposit: to the personal P2SH address the pinned signers make.
+    let r = b.w.prepare_deposit("10", None).unwrap();
+    assert_eq!((r.kind, r.chain, r.ticker), ("deposit", "dogecoin", "DOGE"));
+    let deposit = doge
+        .signers
+        .deposit_destination_for(Coin::Doge, &key.p2pkh_destination())
+        .unwrap()
+        .address(&DOGE_MAINNET);
+    assert!(
+        r.outputs
+            .iter()
+            .any(|o| o.role == "deposit" && o.address.as_deref() == Some(deposit.as_str()))
+    );
+    // DogecoinVM keeps 0.01 DOGE of it; Dogecoin's fee is 0.01 DOGE/kB.
+    assert_eq!(r.credited.as_deref(), Some("9.99"));
+    assert_eq!(r.fee, "0.00227");
+    assert_eq!(r.fee_rate, None, "no fee rate to choose on Dogecoin");
+    let sent = b.w.confirm(r.id).unwrap();
+    assert_eq!(sent.chain, "dogecoin");
+    let (chain, txid) = b.doge.sent().pop().unwrap();
+    assert_eq!((chain, txid.clone()), (Chain::Dogecoin, sent.txid.clone()));
+    // A legacy transaction, signed in its inputs' scripts.
+    let raw = hex::decode(b.doge.state.lock().unwrap().raw[&txid].clone()).unwrap();
+    let parsed = tx::parse_tx(&raw).unwrap();
+    assert_eq!(parsed.version, 1);
+    assert!(parsed.witnesses.iter().all(Vec::is_empty));
+
+    // A withdrawal: to the reserve on DogecoinVM, tagged DVMO with where to pay.
+    let back = doge_address(&Key::generate());
+    let r = b.w.prepare_withdrawal(&back, "5").unwrap();
+    assert_eq!((r.kind, r.chain), ("withdraw", "dogecoinvm"));
+    assert!(r.outputs.iter().any(|o| o.role == "reserve"));
+    assert!(
+        r.outputs
+            .iter()
+            .any(|o| o.withdrawal_to.as_deref() == Some(back.as_str()))
+    );
+    assert_eq!(r.payout_fee.as_deref(), Some("0.10000000"));
+    b.w.confirm(r.id).unwrap();
+    let view = b.w.view();
+    assert_eq!(view.withdrawals.len(), 1);
+    assert_eq!(view.withdrawals[0].coin, "doge");
+    // BTC's view knows nothing of DOGE's payments.
+    let btc_view = b.w.set_coin("btc").unwrap();
+    assert!(btc_view.withdrawals.is_empty() && btc_view.in_flight.is_empty());
+    b.w.set_coin("doge").unwrap();
+
+    // A send on DogecoinVM, its coins not spent twice while in flight.
+    b.doge.fund(Chain::Dogecoinvm, &me, &[300_000_000]);
+    b.w.refresh();
+    let r = b.w.prepare_send("dogecoinvm", &back, "1", None).unwrap();
+    assert_eq!(
+        r.fee, "0.000227",
+        "DogecoinVM's relay minimum, 0.001 DOGE/kB"
+    );
+    b.w.confirm(r.id).unwrap();
+    // Max on Dogecoin spends every coin not already in flight, with nothing
+    // left for change.
+    b.doge
+        .fund(Chain::Dogecoin, &me, &[700_000_000, 300_000_000]);
+    b.w.refresh();
+    let max = b.w.max_amount("send", "dogecoin", &back, None).unwrap();
+    let r = b.w.prepare_send("dogecoin", &back, &max, None).unwrap();
+    assert_eq!(r.outputs.len(), 1);
+    // A Bitcoin address is no Dogecoin address.
+    assert!(b.w.prepare_send("dogecoin", TO, "1", None).is_err());
+}
+
+#[test]
+fn a_doge_signer_change_pauses_doge_moves_only() {
+    let (btc, doge, newcomers) = (set(), set(), set());
+    let b = open_both(&btc.signers, &doge.signers);
+    let key = Key::generate();
+    b.w.import("", Zeroizing::new(key.wif(&MAINNET).to_string()))
+        .unwrap();
+    b.btc.fund(Chain::Bitcoin, &address(&key), &[100_000]);
+    b.doge
+        .fund(Chain::Dogecoin, &doge_address(&key), &[5_000_000_000]);
+    // DogecoinVM's bridge reports another set, its peg following from it.
+    let mut info = b.doge.state.lock().unwrap().info.clone();
+    let peg = newcomers
+        .signers
+        .peg_for(Coin::Doge)
+        .unwrap()
+        .address(&DOGE_MAINNET);
+    info["signers"] = serde_json::to_value(&newcomers.signers).unwrap();
+    info["pegAddress"] = peg.clone().into();
+    info["reserveAddress"] = peg.into();
+    b.doge.state.lock().unwrap().info = info;
+    b.w.refresh();
+
+    let change = b.w.new_signer_change().expect("warned once");
+    assert_eq!(change.coin, "doge");
+    assert!(b.w.new_signer_change().is_none());
+    b.w.set_coin("doge").unwrap();
+    let e = b.w.prepare_deposit("10", None).unwrap_err();
+    assert!(
+        e.untrusted && e.message.contains("Dogecoin and DogecoinVM"),
+        "{}",
+        e.message
+    );
+    let view = b.w.view();
+    assert!(view.bridge.signer_change.is_some());
+    assert!(view.coins.iter().any(|c| c.coin == "doge" && c.attention));
+    // Sends still work, and BTC's bridge goes on as before.
+    assert!(
+        b.w.prepare_send("dogecoin", &doge_address(&Key::generate()), "1", None)
+            .is_ok()
+    );
+    b.w.set_coin("btc").unwrap();
+    assert!(b.w.prepare_deposit("0.0005", Some(2)).is_ok());
+    assert!(
+        b.w.view()
+            .coins
+            .iter()
+            .any(|c| c.coin == "btc" && !c.attention)
+    );
 }

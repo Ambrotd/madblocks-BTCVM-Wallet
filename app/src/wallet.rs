@@ -1,30 +1,32 @@
 //! The wallets behind the window: what it shows and what it can do.
 //!
 //! Each wallet is its own key, with its own vault, Windows Hello key and
-//! backup, and one address, the same on Bitcoin and BTCVM. One is active at
-//! a time. Every payment is planned by the core for review and kept here;
+//! backup, and an address for each coin: one for BTC, the same on Bitcoin and
+//! BTCVM, and one for DOGE, the same on Dogecoin and DogecoinVM. One wallet
+//! and one coin are shown at a time; each coin has its own bridge, kept on
+//! its own side. Every payment is planned by the core for review and kept here;
 //! the web view gets a description and an id, never a key or anything it
 //! could change before signing. Signing asks for Windows Hello, reads the
 //! signed transaction back, and records the payment before it is sent.
 
 use crate::api::{
-    AddressView, Api, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DepositEntry, FeeEstimates,
-    Prices,
+    AddressView, Api, ApiError, Bridge, BridgeStatus, DEFAULT_SERVER, DOGE_SERVER, DepositEntry,
+    FeeEstimates, Prices,
 };
 use crate::journal;
 use crate::store::{self, FIRST, Outgoing, RotationProof, Settings, WalletRecord, Withdrawal};
 use btcvm_wallet_core::book::{self, Contact};
 use btcvm_wallet_core::bridge::{
-    self as peg, CheckSource, Pinned, SignerChange, Signers, peg_out_data,
+    self as peg, CheckSource, ConfirmationTier, Pinned, SignerChange, Signers, peg_out_data_for,
 };
 use btcvm_wallet_core::encoding::sha256;
 use btcvm_wallet_core::payment::MAX_FEE_RATE;
 use btcvm_wallet_core::rotation;
 use btcvm_wallet_core::tx::parse_tx;
 use btcvm_wallet_core::{
-    BridgeInfo, Chain, Coins, Destination, Kind as AddressKind, MAINNET, Plan, Request,
-    VerifiedBridge, about, decode_address, format_btc, max_payment, parse_btc, plan_bump,
-    plan_deposit, plan_send, plan_withdrawal, sign_plan,
+    BridgeInfo, Chain, Coin, Coins, DOGE_MAINNET, Destination, DogeBridgeInfo, Kind as AddressKind,
+    MAINNET, Plan, Request, VerifiedBridge, about, decode_address, format_btc, max_payment,
+    plan_bump, plan_deposit, plan_send, plan_withdrawal, sign_plan,
 };
 use btcvm_wallet_vault::{Gate, Secret, Vault, VaultError, WindowsHello};
 use serde::Serialize;
@@ -99,30 +101,88 @@ impl<T> Guard<T> for Mutex<T> {
     }
 }
 
-fn paused() -> Failure {
-    btcvm_wallet_core::Error::Untrusted(btcvm_wallet_core::wallet::PAUSED_BY_SIGNER_CHANGE.into())
+fn paused(coin: Coin) -> Failure {
+    btcvm_wallet_core::Error::Untrusted(btcvm_wallet_core::wallet::paused_by_signer_change(coin))
         .into()
 }
 
+/// What the window and the reviews use of a bridge's `/api/info`, whichever
+/// coin's bridge it is.
+#[derive(Clone, Default)]
+struct Facts {
+    /// Whether the bridge serves balances on the coin's own chain too.
+    l1_wallet: bool,
+    /// What it keeps from a deposit, in the coin.
+    vm_fee: Option<String>,
+    /// What a withdrawal's payout costs on the coin's own chain, taken from
+    /// the amount paid.
+    payout_fee: Option<String>,
+    confirmation_tiers: Vec<ConfirmationTier>,
+    deposit_confirmations: u32,
+}
+
+impl From<&BridgeInfo> for Facts {
+    fn from(i: &BridgeInfo) -> Facts {
+        Facts {
+            l1_wallet: i.btc_wallet,
+            vm_fee: i.vm_fee.clone(),
+            payout_fee: i.payout_fee.clone(),
+            confirmation_tiers: i.confirmation_tiers.clone(),
+            deposit_confirmations: i.deposit_confirmations,
+        }
+    }
+}
+
+impl From<&DogeBridgeInfo> for Facts {
+    fn from(i: &DogeBridgeInfo) -> Facts {
+        Facts {
+            l1_wallet: i.doge_wallet,
+            vm_fee: i.vm_fee.clone(),
+            payout_fee: i.doge_fee.clone(),
+            confirmation_tiers: i.confirmation_tiers.clone(),
+            deposit_confirmations: i.deposit_confirmations,
+        }
+    }
+}
+
+/// What a side last fetched from its bridge.
 #[derive(Default)]
 struct Snapshot {
-    info: Option<BridgeInfo>,
+    info: Option<Facts>,
     bridge: Option<VerifiedBridge>,
     bridge_error: Option<Failure>,
     status: Option<BridgeStatus>,
     /// The wallet the views below belong to.
     wallet: Option<String>,
-    btcvm: Option<AddressView>,
-    bitcoin: Option<AddressView>,
-    bitcoin_note: Option<String>,
+    /// Its address on the coin's VM, and on the coin's own chain.
+    vm: Option<AddressView>,
+    l1: Option<AddressView>,
+    l1_note: Option<String>,
     /// mempool.space's confirmed balance for the active wallet, sats, when
-    /// asked and it differs from the bridge's.
+    /// asked and it differs from the bridge's. BTC only.
     second_opinion: Option<u64>,
     deposits: Vec<DepositEntry>,
-    /// Every wallet's balances, by id: Bitcoin, then BTCVM.
+    /// Every wallet's balances, by id: the coin's own chain, then its VM.
     balances: HashMap<String, (Option<Balance>, Option<Balance>)>,
     connection_error: Option<String>,
     updated: u64,
+}
+
+/// What the wallet keeps for one coin: its bridge, the signer set it trusts
+/// there, what it last fetched, and the coin's price.
+struct Side {
+    coin: Coin,
+    bridge: Mutex<Arc<dyn Api>>,
+    /// The signer set built into the wallet, where trust starts.
+    built_in: Pinned,
+    /// The peg's signer set the wallet trusts: the one built in, or for BTC
+    /// the last it followed by a checked rotation.
+    trusted: Mutex<Signers>,
+    /// When the wallet last looked for the move behind a signer change.
+    rotation_checked: Mutex<u64>,
+    snapshot: Mutex<Snapshot>,
+    /// The coin's price, and when it was fetched.
+    prices: Mutex<Option<(Prices, u64)>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -165,19 +225,15 @@ pub type Connect = Box<dyn Fn(&str) -> Arc<dyn Api> + Send + Sync>;
 pub struct Wallet {
     dir: PathBuf,
     settings: Mutex<Settings>,
-    bridge: Mutex<Arc<dyn Api>>,
     connect: Connect,
     gate: SharedGate,
-    /// The signer set built into the wallet, where trust starts.
-    built_in: Pinned,
-    snapshot: Mutex<Snapshot>,
+    /// BTC's side, then DOGE's.
+    sides: [Side; 2],
     pending: Mutex<Option<Pending>>,
     refreshing: Mutex<()>,
     refresh_again: AtomicBool,
     next_id: AtomicU64,
     language: Mutex<String>,
-    /// BTC's price, and when it was fetched.
-    prices: Mutex<Option<(Prices, u64)>>,
     /// The active wallet's transactions seen so far, to tell what's new.
     seen: Mutex<Seen>,
     /// Payments received, for the window to announce once.
@@ -186,11 +242,6 @@ pub struct Wallet {
     attestation_asked: Mutex<HashSet<String>>,
     /// What the user is to type back from the backup just shown.
     backup_check: Mutex<Option<BackupCheck>>,
-    /// The peg's signer set the wallet trusts: the one built in, or the last
-    /// it followed by a checked rotation.
-    trusted: Mutex<Signers>,
-    /// When the wallet last looked for the move behind a signer change.
-    rotation_checked: Mutex<u64>,
 }
 
 /// A wallet's backup, to show outside the web view: its words, when it has
@@ -254,7 +305,7 @@ pub struct Qr {
     pub address: String,
 }
 
-/// A currency and BTC's price in it.
+/// A currency and the coin shown's price in it.
 #[derive(Serialize, Clone)]
 pub struct Fiat {
     pub currency: &'static str,
@@ -276,13 +327,22 @@ pub struct View {
     /// Set when the active wallet's vault can't be opened and only the
     /// backup can help.
     pub vault_problem: Option<String>,
-    /// Hidden while a new wallet's key isn't backed up.
+    /// The coin shown: "btc" or "doge".
+    pub coin: &'static str,
+    /// Each coin at a glance, for the total and the coin selector.
+    pub coins: Vec<CoinSummary>,
+    /// The active wallet's address for the coin shown. Hidden while a new
+    /// wallet's key isn't backed up.
     pub address: Option<String>,
+    /// A phrase wallet's DOGE address isn't known until the phrase is
+    /// unlocked once with Windows Hello.
+    pub address_unknown: bool,
     pub receive_blocked: bool,
     pub backup_confirmed: bool,
-    pub bitcoin: Option<Balance>,
-    pub btcvm: Option<Balance>,
-    pub bitcoin_note: Option<String>,
+    /// The coin shown on its own chain (Bitcoin, Dogecoin) and on its VM.
+    pub l1: Option<Balance>,
+    pub vm: Option<Balance>,
+    pub l1_note: Option<String>,
     pub history: Vec<HistoryRow>,
     pub deposits: Vec<DepositEntry>,
     pub withdrawals: Vec<Withdrawal>,
@@ -290,14 +350,14 @@ pub struct View {
     pub address_book: Vec<Contact>,
     pub bridge: BridgeView,
     pub connection_error: Option<String>,
-    /// What the deposits not yet credited will add on BTCVM, after the
+    /// What the deposits not yet credited will add on the VM, after the
     /// bridge's fee: pending there until the bridge credits them.
-    pub btcvm_incoming: Option<String>,
+    pub vm_incoming: Option<String>,
     /// An unexpected failure since the app started, logged in detail.
     pub internal_error: Option<String>,
     /// What the user chose to see values in: "EUR", "USD" or "none".
     pub fiat_choice: String,
-    /// BTC's price in that currency, once known.
+    /// The coin shown's price in that currency, once known.
     pub fiat: Option<Fiat>,
     /// Whether Windows certified the active wallet's Windows Hello key to be
     /// in a TPM.
@@ -314,8 +374,22 @@ pub struct View {
     pub updates_possible: bool,
     /// mempool.space's confirmed Bitcoin balance, BTC, when it differs from
     /// the bridge's.
-    pub bitcoin_disagrees: Option<String>,
+    pub l1_disagrees: Option<String>,
     pub updated: u64,
+}
+
+/// One coin at a glance: what the active wallet holds on its two chains,
+/// its price, and whether its bridge needs a look.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CoinSummary {
+    pub coin: &'static str,
+    pub l1: Option<Balance>,
+    pub vm: Option<Balance>,
+    /// The coin's price in the chosen currency, once known.
+    pub price: Option<f64>,
+    /// The bridge can't be reached or checked, or reports another signer set.
+    pub attention: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -328,8 +402,9 @@ pub struct WalletView {
     pub address: Option<String>,
     pub active: bool,
     pub needs_backup: bool,
-    pub bitcoin: Option<Balance>,
-    pub btcvm: Option<Balance>,
+    /// The coin shown, on its own chain and on its VM.
+    pub l1: Option<Balance>,
+    pub vm: Option<Balance>,
     pub hardware: Option<bool>,
 }
 
@@ -352,6 +427,7 @@ pub struct HistoryRow {
 #[derive(Serialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeView {
+    pub coin: &'static str,
     pub connected: bool,
     pub trusted: bool,
     pub error: Option<Failure>,
@@ -367,7 +443,8 @@ pub struct BridgeView {
     pub solvent: Option<bool>,
     pub locked: Option<String>,
     pub circulating: Option<String>,
-    pub bitcoin_syncing: bool,
+    /// The bridge's node of the coin's own chain is catching up.
+    pub l1_syncing: bool,
     /// The last rotation the wallet followed, until the user has seen it.
     pub rotation: Option<RotationView>,
 }
@@ -385,6 +462,8 @@ pub struct RotationView {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SignerChangeView {
+    /// Whose bridge: "btc" or "doge".
+    pub coin: &'static str,
     pub trusted_peg: String,
     pub reported_peg: String,
     pub added: Vec<String>,
@@ -419,6 +498,8 @@ pub struct Review {
     pub id: u64,
     pub kind: &'static str,
     pub chain: &'static str,
+    /// The coin's ticker, for the amounts: "BTC" or "DOGE".
+    pub ticker: &'static str,
     pub wallet_name: String,
     /// Who is paid: the address typed, the deposit address, or for a
     /// withdrawal the Bitcoin address the bridge pays.
@@ -435,10 +516,11 @@ pub struct Review {
     /// What leaves the wallet: the amount and the fee.
     pub total: String,
     pub outputs: Vec<OutputRow>,
-    /// A deposit: what BTCVM credits, and after how many confirmations.
+    /// A deposit: what the VM credits, and after how many confirmations.
     pub credited: Option<String>,
     pub confirmations: Option<u32>,
-    /// A withdrawal: the Bitcoin fee taken from the payout at today's rate.
+    /// A withdrawal: the coin's own chain's fee taken from the payout at
+    /// today's rate.
     pub payout_fee: Option<String>,
     /// A replacement: the fee of the payment it replaces.
     pub previous_fee: Option<String>,
@@ -469,11 +551,49 @@ fn chain_name(chain: Chain) -> &'static str {
     }
 }
 
+/// How a withdrawal's record names its coin: empty for BTC, as before DOGE.
+fn coin_name(coin: Coin) -> String {
+    match coin {
+        Coin::Btc => String::new(),
+        Coin::Doge => "doge".into(),
+    }
+}
+
+/// A phrase wallet's DOGE address, from its secret: its DOGE key is another
+/// than its BTC one. A key's follows from its BTC address, so it isn't kept.
+fn phrase_doge_address(secret: &Secret) -> Option<String> {
+    match secret {
+        Secret::Phrase(_) => secret
+            .key_for(Coin::Doge)
+            .ok()
+            .map(|k| k.p2pkh_destination().address(&DOGE_MAINNET)),
+        Secret::Key(_) => None,
+    }
+}
+
 fn parse_chain(name: &str) -> Outcome<Chain> {
     match name {
         "bitcoin" => Ok(Chain::Bitcoin),
         "btcvm" => Ok(Chain::Btcvm),
+        "dogecoin" => Ok(Chain::Dogecoin),
+        "dogecoinvm" => Ok(Chain::Dogecoinvm),
         _ => fail("unknown network"),
+    }
+}
+
+/// A coin as the window and the settings name it.
+fn coin_key(coin: Coin) -> &'static str {
+    match coin {
+        Coin::Btc => "btc",
+        Coin::Doge => "doge",
+    }
+}
+
+fn parse_coin(name: &str) -> Outcome<Coin> {
+    match name {
+        "btc" => Ok(Coin::Btc),
+        "doge" => Ok(Coin::Doge),
+        _ => fail("unknown coin"),
     }
 }
 
@@ -545,14 +665,15 @@ fn fiat_choice(settings: &Settings, language: &str) -> &'static str {
     }
 }
 
-/// What deposits on their way will add on BTCVM: those confirming, waiting
+/// What deposits on their way will add on the VM: those confirming, waiting
 /// for the bridge's capacity, or being credited without a credit yet. Each
 /// counts as the bridge says it will credit it, or its amount less the
 /// bridge's fee.
-fn incoming(deposits: &[DepositEntry], info: Option<&BridgeInfo>) -> Option<String> {
+fn incoming(deposits: &[DepositEntry], info: Option<&Facts>, coin: Coin) -> Option<String> {
+    let parse = |s: &str| coin.parse_amount(s).ok();
     let fee = info
         .and_then(|i| i.vm_fee.as_deref())
-        .and_then(|f| parse_btc(f).ok())
+        .and_then(parse)
         .unwrap_or(0);
     let total: u64 = deposits
         .iter()
@@ -562,14 +683,12 @@ fn incoming(deposits: &[DepositEntry], info: Option<&BridgeInfo>) -> Option<Stri
                 "confirming" | "waiting_for_capacity" | "crediting"
             ) && d.credit_txid.is_none()
         })
-        .map(
-            |d| match d.credited.as_deref().and_then(|c| parse_btc(c).ok()) {
-                Some(credited) => credited,
-                None => parse_btc(&d.amount).unwrap_or(0).saturating_sub(fee),
-            },
-        )
+        .map(|d| match d.credited.as_deref().and_then(parse) {
+            Some(credited) => credited,
+            None => parse(&d.amount).unwrap_or(0).saturating_sub(fee),
+        })
         .sum();
-    (total > 0).then(|| format_btc(total))
+    (total > 0).then(|| coin.format_amount(total))
 }
 
 /// A wallet's name as stored: cleaned like an address book name, or empty
@@ -594,13 +713,33 @@ impl Wallet {
     }
 
     /// The wallets kept in `dir`, reaching servers through `connect`, their
-    /// vaults unlocked through `gate`, trusting `built_in` signers first.
+    /// vaults unlocked through `gate`, trusting `built_in` signers first for
+    /// BTC, and DogecoinVM's mainnet set for DOGE.
     pub fn open_with(
         dir: PathBuf,
         language: &str,
         connect: Connect,
         gate: SharedGate,
         built_in: Pinned,
+    ) -> Wallet {
+        Wallet::open_with_pins(
+            dir,
+            language,
+            connect,
+            gate,
+            built_in,
+            Pinned::doge_mainnet(),
+        )
+    }
+
+    /// As [`Wallet::open_with`], trusting `doge` signers first for DOGE.
+    pub fn open_with_pins(
+        dir: PathBuf,
+        language: &str,
+        connect: Connect,
+        gate: SharedGate,
+        btc: Pinned,
+        doge: Pinned,
     ) -> Wallet {
         let mut settings = store::load(&dir);
         // The book is checked again each time it's read.
@@ -610,27 +749,38 @@ impl Wallet {
             .clone()
             .unwrap_or_else(|| DEFAULT_SERVER.into());
         let language = settings.language.clone().unwrap_or_else(|| language.into());
-        let trusted = replay(&built_in.signers, &settings.rotations);
+        // BTC follows checked rotations of its signers; DogecoinVM's bridge
+        // can't hand over to a new set yet.
+        let trusted = replay(&btc.signers, &settings.rotations);
+        let side = |coin, url: &str, built_in: Pinned, trusted: Signers| Side {
+            coin,
+            bridge: Mutex::new(connect(url)),
+            built_in,
+            trusted: Mutex::new(trusted),
+            rotation_checked: Mutex::new(0),
+            snapshot: Mutex::new(Snapshot::default()),
+            prices: Mutex::new(None),
+        };
+        let doge_signers = doge.signers.clone();
+        let sides = [
+            side(Coin::Btc, &server, btc, trusted),
+            side(Coin::Doge, DOGE_SERVER, doge, doge_signers),
+        ];
         let wallet = Wallet {
             dir,
             settings: Mutex::new(settings),
-            bridge: Mutex::new(connect(&server)),
             connect,
             gate,
-            built_in,
-            snapshot: Mutex::new(Snapshot::default()),
+            sides,
             pending: Mutex::new(None),
             refreshing: Mutex::new(()),
             refresh_again: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             language: Mutex::new(language),
-            prices: Mutex::new(None),
             seen: Mutex::new(Seen::default()),
             notices: Mutex::new(Vec::new()),
             attestation_asked: Mutex::new(HashSet::new()),
             backup_check: Mutex::new(None),
-            trusted: Mutex::new(trusted),
-            rotation_checked: Mutex::new(0),
         };
         // Saves a single-wallet install in the new form at once.
         let settings = wallet.settings.guard().clone();
@@ -640,6 +790,12 @@ impl Wallet {
 
     pub fn language(&self) -> String {
         self.language.guard().clone()
+    }
+
+    /// Where the wallets live, for tests that reopen them.
+    #[cfg(test)]
+    pub fn data_dir(&self) -> PathBuf {
+        self.dir.clone()
     }
 
     /// Takes the system's language, unless the user chose one.
@@ -654,13 +810,30 @@ impl Wallet {
         }
     }
 
-    /// The bridge's stream of new blocks.
-    pub fn events(&self) -> Result<Box<dyn std::io::BufRead + Send>, ApiError> {
-        self.bridge().events()
+    /// `coin`'s bridge's stream of new blocks.
+    pub fn events(&self, coin: Coin) -> Result<Box<dyn std::io::BufRead + Send>, ApiError> {
+        self.bridge(coin).events()
     }
 
-    fn bridge(&self) -> Arc<dyn Api> {
-        self.bridge.guard().clone()
+    fn side(&self, coin: Coin) -> &Side {
+        let side = match coin {
+            Coin::Btc => &self.sides[0],
+            Coin::Doge => &self.sides[1],
+        };
+        debug_assert_eq!(side.coin, coin);
+        side
+    }
+
+    fn bridge(&self, coin: Coin) -> Arc<dyn Api> {
+        self.side(coin).bridge.guard().clone()
+    }
+
+    /// The coin shown.
+    fn active_coin(&self) -> Coin {
+        match self.settings.guard().coin.as_deref() {
+            Some("doge") => Coin::Doge,
+            _ => Coin::Btc,
+        }
     }
 
     fn save(&self, settings: &Settings) {
@@ -687,14 +860,24 @@ impl Wallet {
         Vault::new(store::vault_dir(&self.dir, id), self.gate.clone())
     }
 
-    /// A wallet's address, from its vault file. Shown only; the key is
+    /// A wallet's BTC address, from its vault file. Shown only; the key is
     /// checked against it every time the vault opens.
     fn address_of(&self, id: &str) -> Option<String> {
         self.vault(id).address().ok()
     }
 
-    fn address(&self) -> Option<String> {
-        self.active_id().and_then(|id| self.address_of(&id))
+    /// A wallet's address for `coin`: BTC's from its vault file, and DOGE's
+    /// from it too for a key, or as learned from its phrase. Shown only:
+    /// signing checks it against the key.
+    fn address_for(&self, id: &str, coin: Coin) -> Option<String> {
+        match coin {
+            Coin::Btc => self.address_of(id),
+            Coin::Doge => match self.vault(id).address_for(Coin::Doge) {
+                Ok(Some(address)) => Some(address),
+                Ok(None) => self.record(id).and_then(|r| r.doge_address),
+                Err(_) => None,
+            },
+        }
     }
 
     fn record(&self, id: &str) -> Option<WalletRecord> {
@@ -749,7 +932,8 @@ impl Wallet {
 
     pub fn view(&self) -> View {
         let settings = self.settings.guard().clone();
-        let snap = self.snapshot.guard();
+        let coin = self.active_coin();
+        let snap = self.side(coin).snapshot.guard();
         let active = settings.active.clone();
         let record = active
             .as_ref()
@@ -766,7 +950,10 @@ impl Wallet {
         let fresh = snap.wallet == active;
         let mut history: Vec<HistoryRow> = Vec::new();
         if fresh {
-            for (chain, view) in [("btcvm", &snap.btcvm), ("bitcoin", &snap.bitcoin)] {
+            for (chain, view) in [
+                (chain_name(coin.vm()), &snap.vm),
+                (chain_name(coin.l1()), &snap.l1),
+            ] {
                 if let Some(v) = view {
                     history.extend(v.history.iter().take(25).map(|h| HistoryRow {
                         chain,
@@ -784,75 +971,86 @@ impl Wallet {
             .iter()
             .map(|w| {
                 let needs_backup = w.backup_required && !w.backup_confirmed;
-                let (bitcoin, btcvm) = snap.balances.get(&w.id).cloned().unwrap_or((None, None));
+                let (l1, vm) = snap.balances.get(&w.id).cloned().unwrap_or((None, None));
                 WalletView {
                     id: w.id.clone(),
                     name: w.name.clone(),
-                    address: self.address_of(&w.id).filter(|_| !needs_backup),
+                    address: self.address_for(&w.id, coin).filter(|_| !needs_backup),
                     active: Some(&w.id) == active.as_ref(),
                     needs_backup,
-                    bitcoin,
-                    btcvm,
+                    l1,
+                    vm,
                     hardware: w.hardware,
                 }
             })
             .collect();
         let fiat_choice = fiat_choice(&settings, &self.language());
-        let fiat = self
-            .prices
-            .guard()
-            .as_ref()
-            .and_then(|(p, _)| match fiat_choice {
-                "EUR" => Some(Fiat {
-                    currency: "EUR",
-                    price: p.eur,
-                }),
-                "USD" => Some(Fiat {
-                    currency: "USD",
-                    price: p.usd,
-                }),
-                _ => None,
-            });
+        let fiat = self.price(coin, fiat_choice).map(|price| Fiat {
+            currency: fiat_choice,
+            price,
+        });
+        // Each coin at a glance; the one shown from the snapshot already held.
+        let coins = Coin::ALL
+            .iter()
+            .map(|&c| {
+                if c == coin {
+                    self.summary(c, &snap, active.as_ref(), fiat_choice)
+                } else {
+                    let other = self.side(c).snapshot.guard();
+                    self.summary(c, &other, active.as_ref(), fiat_choice)
+                }
+            })
+            .collect();
+        let address = active.as_ref().and_then(|id| self.address_for(id, coin));
         View {
             version: env!("CARGO_PKG_VERSION"),
-            server: self.bridge().base().to_string(),
+            server: self.bridge(Coin::Btc).base().to_string(),
             language: self.language(),
             has_wallet: !settings.wallets.is_empty(),
             wallets,
             wallet_id: active.clone(),
             wallet_name: record.name.clone(),
+            address_unknown: active.is_some() && vault_problem.is_none() && address.is_none(),
             vault_problem,
-            address: self.address().filter(|_| !receive_blocked),
+            coin: coin_key(coin),
+            coins,
+            address: address.filter(|_| !receive_blocked),
             receive_blocked,
             backup_confirmed: record.backup_confirmed,
-            bitcoin: if fresh {
-                balance(snap.bitcoin.as_ref())
+            l1: if fresh {
+                balance(snap.l1.as_ref())
             } else {
                 None
             },
-            btcvm: if fresh {
-                balance(snap.btcvm.as_ref())
+            vm: if fresh {
+                balance(snap.vm.as_ref())
             } else {
                 None
             },
-            bitcoin_note: if fresh {
-                snap.bitcoin_note.clone()
-            } else {
-                None
-            },
+            l1_note: if fresh { snap.l1_note.clone() } else { None },
             history,
             deposits: if fresh {
                 snap.deposits.clone()
             } else {
                 Vec::new()
             },
-            withdrawals: record.withdrawals.clone(),
-            in_flight: record.outgoing.clone(),
+            withdrawals: record
+                .withdrawals
+                .iter()
+                .filter(|w| w.coin == coin_name(coin))
+                .cloned()
+                .collect(),
+            in_flight: record
+                .outgoing
+                .iter()
+                .filter(|o| parse_chain(&o.chain).is_ok_and(|c| c.coin() == coin))
+                .cloned()
+                .collect(),
             address_book: settings.address_book.clone(),
-            bridge: self.bridge_view(&snap),
+            bridge: self.bridge_view(&snap, coin),
             connection_error: snap.connection_error.clone(),
-            btcvm_incoming: if fresh {
-                incoming(&snap.deposits, snap.info.as_ref())
+            vm_incoming: if fresh {
+                incoming(&snap.deposits, snap.info.as_ref(), coin)
             } else {
                 None
             },
@@ -860,7 +1058,7 @@ impl Wallet {
             check_balances: settings.check_balances,
             updates_on: !settings.updates_off,
             updates_possible: crate::update::configured(),
-            bitcoin_disagrees: if fresh {
+            l1_disagrees: if fresh {
                 snap.second_opinion.map(format_btc)
             } else {
                 None
@@ -882,13 +1080,61 @@ impl Wallet {
         }
     }
 
-    fn bridge_view(&self, snap: &Snapshot) -> BridgeView {
+    /// `coin`'s price in `currency`, once known.
+    fn price(&self, coin: Coin, currency: &str) -> Option<f64> {
+        self.side(coin)
+            .prices
+            .guard()
+            .as_ref()
+            .and_then(|(p, _)| match currency {
+                "EUR" => Some(p.eur),
+                "USD" => Some(p.usd),
+                _ => None,
+            })
+    }
+
+    /// `coin` at a glance, from its side's snapshot `snap`.
+    fn summary(
+        &self,
+        coin: Coin,
+        snap: &Snapshot,
+        active: Option<&String>,
+        currency: &str,
+    ) -> CoinSummary {
+        let fresh = snap.wallet.as_ref() == active;
+        CoinSummary {
+            coin: coin_key(coin),
+            l1: if fresh {
+                balance(snap.l1.as_ref())
+            } else {
+                None
+            },
+            vm: if fresh {
+                balance(snap.vm.as_ref())
+            } else {
+                None
+            },
+            price: self.price(coin, currency),
+            attention: snap.connection_error.is_some()
+                || snap.bridge_error.is_some()
+                || snap
+                    .bridge
+                    .as_ref()
+                    .is_some_and(|b| b.signer_change.is_some()),
+        }
+    }
+
+    fn bridge_view(&self, snap: &Snapshot, coin: Coin) -> BridgeView {
         let Some(info) = &snap.info else {
-            return BridgeView::default();
+            return BridgeView {
+                coin: coin_key(coin),
+                ..BridgeView::default()
+            };
         };
         let status = snap.status.clone().unwrap_or_default();
         let signer_change = snap.bridge.as_ref().and_then(|b| {
             b.signer_change.as_ref().map(|c| SignerChangeView {
+                coin: coin_key(coin),
                 trusted_peg: c.trusted_peg.address(&b.net),
                 reported_peg: c.reported_peg.address(&b.net),
                 added: c.added_keys(),
@@ -903,19 +1149,21 @@ impl Wallet {
                     .collect(),
             })
         });
+        let amount = |units: u64| coin.format_amount(units);
         BridgeView {
+            coin: coin_key(coin),
             connected: true,
             trusted: snap.bridge.is_some(),
             error: snap.bridge_error.clone(),
             signer_change,
             peg_address: snap.bridge.as_ref().map(|b| b.peg.address(&b.net)),
-            min_deposit: snap.bridge.as_ref().map(|b| format_btc(b.min_deposit)),
+            min_deposit: snap.bridge.as_ref().map(|b| amount(b.min_deposit)),
             max_deposit: snap
                 .bridge
                 .as_ref()
                 .filter(|b| b.max_deposit > 0)
-                .map(|b| format_btc(b.max_deposit)),
-            min_peg_out: snap.bridge.as_ref().map(|b| format_btc(b.min_peg_out)),
+                .map(|b| amount(b.max_deposit)),
+            min_peg_out: snap.bridge.as_ref().map(|b| amount(b.min_peg_out)),
             fee_rate: snap.bridge.as_ref().map(|b| b.fee_rate),
             vm_fee: info.vm_fee.clone(),
             payout_fee: info.payout_fee.clone(),
@@ -923,8 +1171,13 @@ impl Wallet {
             solvent: status.audit.as_ref().map(|a| a.solvent),
             locked: status.audit.as_ref().map(|a| a.locked.clone()),
             circulating: status.audit.as_ref().map(|a| a.circulating.clone()),
-            bitcoin_syncing: status.bitcoin_sync.is_some_and(|s| s.syncing),
-            rotation: self.rotation_view(),
+            l1_syncing: status.bitcoin_sync.is_some_and(|s| s.syncing),
+            // Following a rotation is BTC's.
+            rotation: if coin == Coin::Btc {
+                self.rotation_view()
+            } else {
+                None
+            },
         }
     }
 
@@ -966,60 +1219,94 @@ impl Wallet {
         }
     }
 
-    /// A wallet's address on both chains. On Bitcoin the bridge answers 404
-    /// until the address is registered, which happens here the first time.
+    /// A wallet's address on `coin`'s two chains. On the coin's own chain the
+    /// bridge answers 404 until the address is registered, which happens here
+    /// the first time.
     fn fetch(
         &self,
         api: &dyn Api,
-        info: &BridgeInfo,
+        info: &Facts,
         address: &str,
+        coin: Coin,
     ) -> (Option<AddressView>, Option<AddressView>, Option<String>) {
-        let btcvm = api.address(Chain::Btcvm, address).ok();
-        if !info.btc_wallet {
-            return (None, btcvm, Some("unavailable".into()));
+        let vm = api.address(coin.vm(), address).ok();
+        if !info.l1_wallet {
+            return (None, vm, Some("unavailable".into()));
         }
-        match api.address(Chain::Bitcoin, address) {
-            Ok(v) => (Some(v), btcvm, None),
+        match api.address(coin.l1(), address) {
+            Ok(v) => (Some(v), vm, None),
             Err(e) if e.status == 404 => {
-                let _ = api.watch_bitcoin(address);
-                let v = api.address(Chain::Bitcoin, address).ok();
+                let _ = api.watch(coin.l1(), address);
+                let v = api.address(coin.l1(), address).ok();
                 let note = v.is_none().then(|| "watching".to_string());
-                (v, btcvm, note)
+                (v, vm, note)
             }
-            Err(e) if e.status == 503 => (None, btcvm, Some("syncing".into())),
-            Err(e) => (None, btcvm, Some(e.message)),
+            Err(e) if e.status == 503 => (None, vm, Some("syncing".into())),
+            Err(e) => (None, vm, Some(e.message)),
         }
     }
 
     fn refresh_once(&self) {
-        let api = self.bridge();
-        let info = match api.info() {
+        for coin in Coin::ALL {
+            self.refresh_side(coin);
+            self.note_new_payments(coin);
+            self.refresh_prices(coin, false);
+        }
+        self.ask_attestations();
+    }
+
+    /// Refreshes `coin`'s side from its bridge.
+    fn refresh_side(&self, coin: Coin) {
+        enum Info {
+            Btc(Box<BridgeInfo>),
+            Doge(Box<DogeBridgeInfo>),
+        }
+        let side = self.side(coin);
+        let api = self.bridge(coin);
+        let info = match coin {
+            Coin::Btc => api.info().map(|i| Info::Btc(Box::new(i))),
+            Coin::Doge => api.doge_info().map(|i| Info::Doge(Box::new(i))),
+        };
+        let info = match info {
             Ok(info) => info,
             Err(e) => {
-                let mut snap = self.snapshot.guard();
+                let mut snap = side.snapshot.guard();
                 if snap.connection_error.is_none() {
-                    journal::warn(&format!("can't reach the bridge: {}", e.message));
+                    journal::warn(&format!(
+                        "can't reach {}'s bridge: {}",
+                        coin.vm().name(),
+                        e.message
+                    ));
                 }
                 snap.connection_error = Some(e.message);
                 return;
             }
         };
-        let (mut bridge, mut bridge_error) = match peg::verify(&info, &self.pinned()) {
-            Ok(b) => (Some(b), None),
-            Err(e) => (None, Some(Failure::from(e))),
+        let verify = |info: &Info| {
+            let checked = match info {
+                Info::Btc(i) => peg::verify(i, &self.pinned(coin)),
+                Info::Doge(i) => peg::verify_doge(i, &self.pinned(coin)),
+            };
+            match checked {
+                Ok(b) => (Some(b), None),
+                Err(e) => (None, Some(Failure::from(e))),
+            }
         };
-        // A signer change: look for the old signers' own move to the new set,
-        // every ten minutes, and follow it if it checks out.
+        let (mut bridge, mut bridge_error) = verify(&info);
+        // A signer change on BTCVM's bridge: look for the old signers' own
+        // move to the new set, every ten minutes, and follow it if it checks
+        // out. DogecoinVM's bridge can't hand over to a new set yet.
         let change = bridge.as_ref().and_then(|b| b.signer_change.clone());
-        if let Some(change) = change {
-            let due = now().saturating_sub(*self.rotation_checked.guard()) >= 600;
+        if let Some(change) = change.filter(|_| coin == Coin::Btc) {
+            let due = now().saturating_sub(*side.rotation_checked.guard()) >= 600;
             if due && self.follow_rotation(&*api, &change) {
-                (bridge, bridge_error) = match peg::verify(&info, &self.pinned()) {
-                    Ok(b) => (Some(b), None),
-                    Err(e) => (None, Some(Failure::from(e))),
-                };
+                (bridge, bridge_error) = verify(&info);
             }
         }
+        let facts = match &info {
+            Info::Btc(i) => Facts::from(&**i),
+            Info::Doge(i) => Facts::from(&**i),
+        };
         let status = api.status().ok();
         let active = self.active_id();
         let mut snap = Snapshot {
@@ -1035,37 +1322,40 @@ impl Wallet {
             .map(|w| w.id.clone())
             .collect();
         for id in ids {
-            let Some(address) = self.address_of(&id) else {
+            let Some(address) = self.address_for(&id, coin) else {
                 continue;
             };
-            let (bitcoin, btcvm, note) = self.fetch(&*api, &info, &address);
-            snap.balances.insert(
-                id.clone(),
-                (balance(bitcoin.as_ref()), balance(btcvm.as_ref())),
-            );
+            let (l1, vm, note) = self.fetch(&*api, &facts, &address, coin);
+            snap.balances
+                .insert(id.clone(), (balance(l1.as_ref()), balance(vm.as_ref())));
             if Some(&id) == active.as_ref() {
                 snap.deposits = api.deposits(&address).unwrap_or_default();
-                self.follow_withdrawals(&*api, &id);
-                self.settle(&id, Chain::Btcvm, btcvm.as_ref());
-                self.settle(&id, Chain::Bitcoin, bitcoin.as_ref());
-                snap.second_opinion = self.second_opinion(&*api, &address, bitcoin.as_ref());
-                snap.btcvm = btcvm;
-                snap.bitcoin = bitcoin;
-                snap.bitcoin_note = note;
+                self.follow_withdrawals(&*api, &id, coin);
+                self.settle(&id, coin.vm(), vm.as_ref());
+                self.settle(&id, coin.l1(), l1.as_ref());
+                if coin == Coin::Btc {
+                    snap.second_opinion = self.second_opinion(&*api, &address, l1.as_ref());
+                }
+                snap.vm = vm;
+                snap.l1 = l1;
+                snap.l1_note = note;
             }
         }
-        snap.info = Some(info);
+        snap.info = Some(facts);
         snap.bridge = bridge;
         {
-            let before = self.snapshot.guard();
+            let before = side.snapshot.guard();
+            let name = coin.vm().name();
             if before.connection_error.is_some() {
-                journal::info("the bridge answers again");
+                journal::info(&format!("{name}'s bridge answers again"));
             }
             match (&before.bridge_error, &bridge_error) {
                 (None, Some(e)) => {
-                    journal::error(&format!("the bridge failed the checks: {}", e.message))
+                    journal::error(&format!("{name}'s bridge failed the checks: {}", e.message))
                 }
-                (Some(_), None) => journal::info("the bridge passes the checks again"),
+                (Some(_), None) => {
+                    journal::info(&format!("{name}'s bridge passes the checks again"))
+                }
                 _ => {}
             }
         }
@@ -1074,24 +1364,24 @@ impl Wallet {
         snap.updated = now();
         // A wallet switched while this ran keeps its fresh state.
         if self.active_id() == active {
-            *self.snapshot.guard() = snap;
+            *side.snapshot.guard() = snap;
         }
-        self.note_new_payments();
-        self.refresh_prices(false);
-        self.ask_attestations();
     }
 
-    /// Notes payments to the active wallet not seen before, for the window to
-    /// announce. A first look at a wallet, or at one of its chains, only
-    /// remembers what is there.
-    fn note_new_payments(&self) {
+    /// Notes payments to the active wallet on `coin`'s chains not seen
+    /// before, for the window to announce. A first look at a wallet, or at
+    /// one of its chains, only remembers what is there.
+    fn note_new_payments(&self, coin: Coin) {
         let (wallet, entries) = {
-            let snap = self.snapshot.guard();
+            let snap = self.side(coin).snapshot.guard();
             let Some(wallet) = snap.wallet.clone() else {
                 return;
             };
             let mut entries = Vec::new();
-            for (chain, view) in [("bitcoin", &snap.bitcoin), ("btcvm", &snap.btcvm)] {
+            for (chain, view) in [
+                (chain_name(coin.l1()), &snap.l1),
+                (chain_name(coin.vm()), &snap.vm),
+            ] {
                 if let Some(view) = view {
                     for h in &view.history {
                         entries.push((chain, h.txid.clone(), h.net.clone(), h.confirmations));
@@ -1114,12 +1404,12 @@ impl Wallet {
             let new = seen.txids.insert(format!("{chain}:{txid}"));
             if new && known.contains(chain) {
                 // Only what comes in: a net loss doesn't parse as an amount.
-                if let Ok(amount) = parse_btc(&net)
+                if let Ok(amount) = coin.parse_amount(&net)
                     && amount > 0
                 {
                     notices.push(Notice {
                         chain,
-                        amount: format_btc(amount),
+                        amount: coin.format_amount(amount),
                         confirmed: confirmations > 0,
                     });
                 }
@@ -1128,7 +1418,12 @@ impl Wallet {
         drop(seen);
         if !notices.is_empty() {
             for n in &notices {
-                journal::info(&format!("received {} BTC on {}", n.amount, n.chain));
+                journal::info(&format!(
+                    "received {} {} on {}",
+                    n.amount,
+                    coin.ticker(),
+                    n.chain
+                ));
             }
             self.notices.guard().extend(notices);
         }
@@ -1139,14 +1434,15 @@ impl Wallet {
         std::mem::take(&mut *self.notices.guard())
     }
 
-    /// Fetches BTC's price every ten minutes, or now, unless the user turned
-    /// values off.
-    fn refresh_prices(&self, now_please: bool) {
+    /// Fetches `coin`'s price every ten minutes, or now, unless the user
+    /// turned values off: BTC's from mempool.space, DOGE's from CoinGecko.
+    fn refresh_prices(&self, coin: Coin, now_please: bool) {
         let choice = fiat_choice(&self.settings.guard(), &self.language());
         if choice == "none" {
             return;
         }
-        let fresh = self
+        let side = self.side(coin);
+        let fresh = side
             .prices
             .guard()
             .as_ref()
@@ -1154,13 +1450,18 @@ impl Wallet {
         if fresh && !now_please {
             return;
         }
-        if let Ok(p) = self.bridge().prices()
+        let api = self.bridge(coin);
+        let fetched = match coin {
+            Coin::Btc => api.prices(),
+            Coin::Doge => api.doge_prices(),
+        };
+        if let Ok(p) = fetched
             && p.usd.is_finite()
             && p.eur.is_finite()
             && p.usd > 0.0
             && p.eur > 0.0
         {
-            *self.prices.guard() = Some((p, now()));
+            *side.prices.guard() = Some((p, now()));
         }
     }
 
@@ -1237,13 +1538,15 @@ impl Wallet {
         self.view()
     }
 
-    /// Checks each withdrawal of wallet `id` not yet confirmed on Bitcoin.
-    fn follow_withdrawals(&self, api: &dyn Api, id: &str) {
+    /// Checks each withdrawal of wallet `id` from `coin`'s VM not yet
+    /// confirmed on the coin's own chain.
+    fn follow_withdrawals(&self, api: &dyn Api, id: &str, coin: Coin) {
         let open: Vec<String> = self
             .record(id)
             .map(|r| r.withdrawals)
             .unwrap_or_default()
             .into_iter()
+            .filter(|w| w.coin == coin_name(coin))
             .filter(|w| w.status != "paid" || w.payment_confirmations.unwrap_or(0) == 0)
             .map(|w| w.txid)
             .collect();
@@ -1292,11 +1595,13 @@ impl Wallet {
         }
     }
 
-    /// The signer set the wallet trusts, pinned as the built-in one is.
-    fn pinned(&self) -> Pinned {
+    /// The signer set the wallet trusts for `coin`, pinned as the built-in
+    /// one is.
+    fn pinned(&self, coin: Coin) -> Pinned {
+        let side = self.side(coin);
         Pinned {
-            signers: self.trusted.guard().clone(),
-            ..self.built_in.clone()
+            signers: side.trusted.guard().clone(),
+            ..side.built_in.clone()
         }
     }
 
@@ -1305,7 +1610,8 @@ impl Wallet {
     /// the reserve moves first, then on Bitcoin. Up to three rotations are
     /// followed, for a wallet that missed some. True when it followed.
     fn follow_rotation(&self, api: &dyn Api, change: &SignerChange) -> bool {
-        *self.rotation_checked.guard() = now();
+        let side = self.side(Coin::Btc);
+        *side.rotation_checked.guard() = now();
         let mut from = change.trusted.clone();
         let mut proofs = Vec::new();
         for _ in 0..3 {
@@ -1334,7 +1640,7 @@ impl Wallet {
             ));
         }
         self.update(|s| s.rotations.extend(proofs));
-        *self.trusted.guard() = from;
+        *side.trusted.guard() = from;
         true
     }
 
@@ -1459,7 +1765,7 @@ impl Wallet {
     /// Checks again now for the move behind a signer change, at the user's
     /// request.
     pub fn check_rotation_now(&self) -> View {
-        *self.rotation_checked.guard() = 0;
+        *self.side(Coin::Btc).rotation_checked.guard() = 0;
         self.refresh();
         self.view()
     }
@@ -1477,18 +1783,33 @@ impl Wallet {
         self.view()
     }
 
-    /// The signer change to warn about once, if one is new.
+    /// A signer change to warn about once, on either coin's bridge, if one
+    /// is new.
     pub fn new_signer_change(&self) -> Option<SignerChangeView> {
-        let change = {
-            let snap = self.snapshot.guard();
-            self.bridge_view(&snap).signer_change?
-        };
-        let already = self.settings.guard().notified_signer_change.clone();
-        if already.as_deref() == Some(change.reported_peg.as_str()) {
-            return None;
+        for coin in Coin::ALL {
+            let change = {
+                let snap = self.side(coin).snapshot.guard();
+                self.bridge_view(&snap, coin).signer_change
+            };
+            let Some(change) = change else { continue };
+            let already = {
+                let s = self.settings.guard();
+                match coin {
+                    Coin::Btc => s.notified_signer_change.clone(),
+                    Coin::Doge => s.notified_doge_signer_change.clone(),
+                }
+            };
+            if already.as_deref() == Some(change.reported_peg.as_str()) {
+                continue;
+            }
+            let peg = Some(change.reported_peg.clone());
+            self.update(|s| match coin {
+                Coin::Btc => s.notified_signer_change = peg,
+                Coin::Doge => s.notified_doge_signer_change = peg,
+            });
+            return Some(change);
         }
-        self.update(|s| s.notified_signer_change = Some(change.reported_peg.clone()));
-        Some(change)
+        None
     }
 
     // --- wallets -------------------------------------------------------------
@@ -1535,6 +1856,7 @@ impl Wallet {
                 backup_required: made_here,
                 hardware: None,
                 software_key_seen: false,
+                doge_address: phrase_doge_address(secret),
                 outgoing: Vec::new(),
                 withdrawals: Vec::new(),
             });
@@ -1598,11 +1920,44 @@ impl Wallet {
             .active_id()
             .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
         let secret = self.vault(&id).unlock_secret()?;
+        self.note_doge_address(&id, &secret);
         let text = BackupText::of(&secret)?;
         drop(secret);
         if show_backup(&text) {
             self.start_backup_check(&id, &text);
         }
+        Ok(self.view())
+    }
+
+    /// Keeps a phrase wallet's DOGE address once its phrase is unlocked.
+    fn note_doge_address(&self, id: &str, secret: &Secret) {
+        if let Some(address) = phrase_doge_address(secret)
+            && self
+                .record(id)
+                .is_some_and(|r| r.doge_address.as_deref() != Some(address.as_str()))
+        {
+            self.update_record(id, |r| r.doge_address = Some(address));
+        }
+    }
+
+    /// Learns the active wallet's DOGE address from its recovery phrase,
+    /// after Windows Hello: a phrase makes another key for DOGE than for BTC.
+    pub fn learn_doge_address(&self) -> Outcome<View> {
+        let id = self
+            .active_id()
+            .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
+        let secret = self.vault(&id).unlock_secret()?;
+        self.note_doge_address(&id, &secret);
+        drop(secret);
+        self.refresh();
+        Ok(self.view())
+    }
+
+    /// Shows `coin`: "btc" or "doge".
+    pub fn set_coin(&self, coin: &str) -> Outcome<View> {
+        let coin = parse_coin(coin)?;
+        *self.pending.guard() = None;
+        self.update(|s| s.coin = (coin != Coin::Btc).then(|| coin_key(coin).to_string()));
         Ok(self.view())
     }
 
@@ -1683,6 +2038,7 @@ impl Wallet {
         let secret = Secret::parse(&text)?;
         drop(text);
         self.vault(&id).restore(&secret)?;
+        self.note_doge_address(&id, &secret);
         self.mark_backed_up(&id);
         self.refresh();
         Ok(self.view())
@@ -1747,24 +2103,27 @@ impl Wallet {
     /// Drops what was shown for the previous wallet and any payment waiting.
     fn forget_views(&self) {
         *self.pending.guard() = None;
-        let mut snap = self.snapshot.guard();
-        snap.wallet = None;
-        snap.btcvm = None;
-        snap.bitcoin = None;
-        snap.bitcoin_note = None;
-        snap.deposits.clear();
+        for coin in Coin::ALL {
+            let mut snap = self.side(coin).snapshot.guard();
+            snap.wallet = None;
+            snap.vm = None;
+            snap.l1 = None;
+            snap.l1_note = None;
+            snap.deposits.clear();
+        }
     }
 
     // --- the address book --------------------------------------------------------
 
     pub fn add_contact(&self, name: &str, address: &str, chain: &str) -> Outcome<View> {
         let chain = parse_chain(chain)?;
-        let canonical = book::canonical(address, &MAINNET)?;
-        let dest = decode_address(&canonical, &MAINNET)?;
+        let net = chain.coin().network();
+        let canonical = book::canonical(address, &net)?;
+        let dest = decode_address(&canonical, &net)?;
         if self
+            .side(chain.coin())
             .snapshot
-            .lock()
-            .unwrap()
+            .guard()
             .bridge
             .as_ref()
             .is_some_and(|b| b.is_peg(&dest))
@@ -1772,7 +2131,7 @@ impl Wallet {
             return fail("that is the bridge's own address; it can't be paid directly");
         }
         let current = self.settings.guard().address_book.clone();
-        let next = book::add(&current, name, &canonical, chain, &MAINNET)?;
+        let next = book::add(&current, name, &canonical, chain, &net)?;
         self.update(|s| s.address_book = next);
         Ok(self.view())
     }
@@ -1803,7 +2162,10 @@ impl Wallet {
         let own: Vec<(String, String)> = settings
             .wallets
             .iter()
-            .filter_map(|w| self.address_of(&w.id).map(|a| (a, self.display_name(w))))
+            .filter_map(|w| {
+                self.address_for(&w.id, chain.coin())
+                    .map(|a| (a, self.display_name(w)))
+            })
             .collect();
         let lookalike = own
             .iter()
@@ -1832,13 +2194,13 @@ impl Wallet {
     /// the wallet's bounds.
     pub fn fee_options(&self) -> FeeOptions {
         let bridge = self
+            .side(Coin::Btc)
             .snapshot
-            .lock()
-            .unwrap()
+            .guard()
             .bridge
             .as_ref()
             .map(|b| b.fee_rate);
-        let fees: Option<FeeEstimates> = self.bridge().recommended_fees().ok();
+        let fees: Option<FeeEstimates> = self.bridge(Coin::Btc).recommended_fees().ok();
         let rate = |f: Option<f64>| {
             f.filter(|r| r.is_finite())
                 .map(|r| r.ceil() as u64)
@@ -1897,7 +2259,9 @@ impl Wallet {
             return fail("unknown currency");
         }
         self.update(|s| s.fiat = Some(currency.to_string()));
-        self.refresh_prices(true);
+        for coin in Coin::ALL {
+            self.refresh_prices(coin, true);
+        }
         Ok(self.view())
     }
 
@@ -1909,21 +2273,22 @@ impl Wallet {
         self.view()
     }
 
-    /// The active wallet's history, as far back as the bridge returns it, as
-    /// CSV, with a name for the file.
+    /// The active wallet's history of the coin shown, as far back as the
+    /// bridge returns it, as CSV, with a name for the file.
     pub fn history_csv(&self) -> Outcome<(String, String)> {
         let id = self
             .active_id()
             .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
-        let address = self.address_of(&id).unwrap_or_default();
+        let coin = self.active_coin();
+        let address = self.address_for(&id, coin).unwrap_or_default();
         let es = self.language() == "es";
         let mut rows = Vec::new();
         {
-            let snap = self.snapshot.guard();
+            let snap = self.side(coin).snapshot.guard();
             if snap.wallet.as_deref() != Some(id.as_str()) {
                 return fail("this wallet's balance hasn't loaded yet");
             }
-            for (chain, view) in [("Bitcoin", &snap.bitcoin), ("BTCVM", &snap.btcvm)] {
+            for (chain, view) in [(coin.l1().name(), &snap.l1), (coin.vm().name(), &snap.vm)] {
                 for h in view.iter().flat_map(|v| &v.history) {
                     rows.push((
                         h.time,
@@ -1936,11 +2301,12 @@ impl Wallet {
             }
         }
         rows.sort_by_key(|r| std::cmp::Reverse(r.0.unwrap_or(i64::MAX)));
-        let mut csv = String::from(if es {
-            "fecha_utc,red,txid,cantidad_btc,confirmaciones,direccion\r\n"
+        let ticker = coin.ticker().to_ascii_lowercase();
+        let mut csv = if es {
+            format!("fecha_utc,red,txid,cantidad_{ticker},confirmaciones,direccion\r\n")
         } else {
-            "date_utc,network,txid,amount_btc,confirmations,address\r\n"
-        });
+            format!("date_utc,network,txid,amount_{ticker},confirmations,address\r\n")
+        };
         for (time, chain, txid, net, confirmations) in rows {
             let date = time
                 .and_then(|t| u64::try_from(t).ok())
@@ -1958,13 +2324,14 @@ impl Wallet {
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
             .collect();
         let day = journal::timestamp(now())[..10].to_string();
-        Ok((format!("madblocks-btcvm-{name}-{day}.csv"), csv))
+        let vm = coin.vm().name().to_ascii_lowercase();
+        Ok((format!("madblocks-{vm}-{name}-{day}.csv"), csv))
     }
 
     // --- payments: review, then sign exactly what was reviewed ---------------
 
-    fn verified(&self) -> Outcome<VerifiedBridge> {
-        let snap = self.snapshot.guard();
+    fn verified(&self, coin: Coin) -> Outcome<VerifiedBridge> {
+        let snap = self.side(coin).snapshot.guard();
         if let Some(e) = &snap.bridge_error {
             return Err(e.clone());
         }
@@ -1973,14 +2340,21 @@ impl Wallet {
             .map_or_else(|| fail("the bridge isn't connected yet"), Ok)
     }
 
-    fn own(&self) -> Outcome<(String, Destination)> {
+    /// The active wallet and its address for `coin`.
+    fn own(&self, coin: Coin) -> Outcome<(String, Destination)> {
         let id = self
             .active_id()
             .map_or_else(|| fail("there is no wallet on this PC"), Ok)?;
-        let address = self
-            .address_of(&id)
-            .map_or_else(|| fail("this wallet's vault can't be read"), Ok)?;
-        Ok((id, decode_address(&address, &MAINNET)?))
+        let address = match self.address_for(&id, coin) {
+            Some(address) => address,
+            None if coin == Coin::Doge && self.address_of(&id).is_some() => {
+                return fail(
+                    "this wallet's DOGE address comes from its recovery phrase: show it once with Windows Hello first",
+                );
+            }
+            None => return fail("this wallet's vault can't be read"),
+        };
+        Ok((id, decode_address(&address, &coin.network())?))
     }
 
     /// The active wallet's coins on `chain` it can spend: confirmed, not
@@ -1992,17 +2366,11 @@ impl Wallet {
         chain: Chain,
     ) -> Outcome<(Vec<btcvm_wallet_core::Utxo>, HashMap<String, String>)> {
         let utxos = {
-            let snap = self.snapshot.guard();
+            let snap = self.side(chain.coin()).snapshot.guard();
             if snap.wallet.as_deref() != Some(id) {
                 return fail("this wallet's balance hasn't loaded yet");
             }
-            let view = match chain {
-                Chain::Bitcoin => &snap.bitcoin,
-                Chain::Btcvm => &snap.btcvm,
-                Chain::Dogecoin | Chain::Dogecoinvm => {
-                    return fail("DOGE isn't available in this wallet yet");
-                }
-            };
+            let view = if chain.is_vm() { &snap.vm } else { &snap.l1 };
             let Some(view) = view else {
                 return fail(format!("your {} balance hasn't loaded yet", chain.name()));
             };
@@ -2020,7 +2388,7 @@ impl Wallet {
             .into_iter()
             .filter(|u| u.confirmations > 0 && !in_use.contains(&format!("{}:{}", u.txid, u.vout)))
             .collect();
-        let api = self.bridge();
+        let api = self.bridge(chain.coin());
         let mut raw = HashMap::new();
         for txid in utxos.iter().map(|u| u.txid.clone()).collect::<HashSet<_>>() {
             let hex = api.raw_tx(chain, &txid)?;
@@ -2037,15 +2405,16 @@ impl Wallet {
         fee_rate: Option<u64>,
     ) -> Outcome<Review> {
         let chain = parse_chain(chain)?;
-        let bridge = self.verified()?;
-        let amount = parse_btc(amount)?;
-        let (id, from) = self.own()?;
+        let coin = chain.coin();
+        let bridge = self.verified(coin)?;
+        let amount = coin.parse_amount(amount)?;
+        let (id, from) = self.own(coin)?;
         let (utxos, raw) = self.coins(&id, chain)?;
         let coins = Coins {
             utxos: &utxos,
             raw_txs: &raw,
         };
-        let to = book::canonical(to.trim(), &MAINNET)?;
+        let to = book::canonical(to.trim(), &coin.network())?;
         let mut bridge_for_fee = bridge.clone();
         bridge_for_fee.fee_rate = Self::fee_rate(&bridge, fee_rate);
         let plan = plan_send(&bridge_for_fee, chain, &from, coins, &to, amount)?;
@@ -2053,16 +2422,20 @@ impl Wallet {
         Ok(self.review(Kind::Send, id, plan, to, amount, &bridge, Some(rate), None))
     }
 
+    /// A deposit of the coin shown, from its own chain to its VM.
     pub fn prepare_deposit(&self, amount: &str, fee_rate: Option<u64>) -> Outcome<Review> {
-        let bridge = self.verified()?;
+        let coin = self.active_coin();
+        let bridge = self.verified(coin)?;
         if bridge.signer_change.is_some() {
-            return Err(paused());
+            return Err(paused(coin));
         }
-        let amount = parse_btc(amount)?;
-        let (id, from) = self.own()?;
+        let amount = coin.parse_amount(amount)?;
+        let (id, from) = self.own(coin)?;
         // Registers the address with the bridge; the core checks the answer.
-        let told = self.bridge().deposit_address(&from.address(&MAINNET))?;
-        let (utxos, raw) = self.coins(&id, Chain::Bitcoin)?;
+        let told = self
+            .bridge(coin)
+            .deposit_address(&from.address(&coin.network()))?;
+        let (utxos, raw) = self.coins(&id, coin.l1())?;
         let coins = Coins {
             utxos: &utxos,
             raw_txs: &raw,
@@ -2083,21 +2456,23 @@ impl Wallet {
         ))
     }
 
+    /// A withdrawal of the coin shown, from its VM to its own chain.
     pub fn prepare_withdrawal(&self, to: &str, amount: &str) -> Outcome<Review> {
-        let bridge = self.verified()?;
-        let amount = parse_btc(amount)?;
-        let (id, from) = self.own()?;
-        let (utxos, raw) = self.coins(&id, Chain::Btcvm)?;
+        let coin = self.active_coin();
+        let bridge = self.verified(coin)?;
+        let amount = coin.parse_amount(amount)?;
+        let (id, from) = self.own(coin)?;
+        let (utxos, raw) = self.coins(&id, coin.vm())?;
         let coins = Coins {
             utxos: &utxos,
             raw_txs: &raw,
         };
-        let to = book::canonical(to.trim(), &MAINNET)?;
+        let to = book::canonical(to.trim(), &coin.network())?;
         let plan = plan_withdrawal(&bridge, &from, coins, amount, &to)?;
         Ok(self.review(Kind::Withdraw, id, plan, to, amount, &bridge, None, None))
     }
 
-    /// The most an action can move now, as BTC for the amount field: all the
+    /// The most an action can move now, for the amount field: all the
     /// confirmed coins on its chain less the fee, and for a deposit no more
     /// than the bridge accepts. An address not typed yet is sized as the
     /// largest standard output, so the amount fits whatever it turns out to be.
@@ -2108,19 +2483,29 @@ impl Wallet {
         to: &str,
         fee_rate: Option<u64>,
     ) -> Outcome<String> {
-        let bridge = self.verified()?;
-        let (id, from) = self.own()?;
-        let largest = |kind| Destination::new(kind, &[0u8; 32]).expect("a 32-byte program");
+        let coin = match action {
+            "send" => parse_chain(chain)?.coin(),
+            _ => self.active_coin(),
+        };
+        let bridge = self.verified(coin)?;
+        let (id, from) = self.own(coin)?;
+        // DOGE's fee doesn't depend on the kind of address paid.
+        let largest = |kind| match coin {
+            Coin::Btc => Destination::new(kind, &[0u8; 32]).expect("a 32-byte program"),
+            Coin::Doge => {
+                Destination::new(AddressKind::P2sh, &[0u8; 20]).expect("a 20-byte program")
+            }
+        };
         let typed = |kind| decode_address(to.trim(), &bridge.net).unwrap_or_else(|_| largest(kind));
         let (chain, dest, data, floor, cap) = match action {
             "send" => (parse_chain(chain)?, typed(AddressKind::P2wsh), None, 0, 0),
             "deposit" => {
                 if bridge.signer_change.is_some() {
-                    return Err(paused());
+                    return Err(paused(coin));
                 }
                 (
-                    Chain::Bitcoin,
-                    bridge.signers.deposit_destination(&from)?,
+                    coin.l1(),
+                    bridge.signers.deposit_destination_for(coin, &from)?,
                     None,
                     bridge.min_deposit,
                     bridge.max_deposit,
@@ -2128,11 +2513,11 @@ impl Wallet {
             }
             "withdraw" => {
                 if bridge.signer_change.is_some() {
-                    return Err(paused());
+                    return Err(paused(coin));
                 }
-                let tag = peg_out_data(&typed(AddressKind::P2tr));
+                let tag = peg_out_data_for(coin, &typed(AddressKind::P2tr));
                 (
-                    Chain::Btcvm,
+                    coin.vm(),
                     bridge.peg.clone(),
                     Some(tag),
                     bridge.min_peg_out,
@@ -2155,13 +2540,14 @@ impl Wallet {
             },
         )?;
         if max < floor {
+            let ticker = coin.ticker();
             return fail(format!(
-                "after the fee there are {} BTC, under the minimum of {} BTC",
-                format_btc(max),
-                format_btc(floor)
+                "after the fee there are {} {ticker}, under the minimum of {} {ticker}",
+                coin.format_amount(max),
+                coin.format_amount(floor)
             ));
         }
-        Ok(format_btc(if cap > 0 { max.min(cap) } else { max }))
+        Ok(coin.format_amount(if cap > 0 { max.min(cap) } else { max }))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2176,15 +2562,17 @@ impl Wallet {
         fee_rate: Option<u64>,
         replaces: Option<String>,
     ) -> Review {
-        let info = self.snapshot.guard().info.clone();
+        let coin = plan.chain.coin();
+        let net = coin.network();
+        let info = self.side(coin).snapshot.guard().info.clone();
         let outputs = plan
-            .describe(&MAINNET)
+            .describe(&net)
             .into_iter()
             .map(|o| {
                 let dest = o
                     .address
                     .as_deref()
-                    .and_then(|a| decode_address(a, &MAINNET).ok());
+                    .and_then(|a| decode_address(a, &net).ok());
                 let role = if o.change {
                     "change"
                 } else if o.withdrawal_to.is_some() || o.data.is_some() {
@@ -2199,7 +2587,7 @@ impl Wallet {
                     "other"
                 };
                 OutputRow {
-                    value: format_btc(o.value),
+                    value: coin.format_amount(o.value),
                     address: o.address,
                     role,
                     withdrawal_to: o.withdrawal_to,
@@ -2209,18 +2597,19 @@ impl Wallet {
         let vm_fee = info
             .as_ref()
             .and_then(|i| i.vm_fee.as_deref())
-            .and_then(|f| parse_btc(f).ok());
+            .and_then(|f| coin.parse_amount(f).ok());
         let tiers = info.as_ref().map(|i| {
             i.confirmation_tiers
                 .iter()
-                .find(|t| parse_btc(&t.up_to).is_ok_and(|up| amount <= up))
+                .find(|t| coin.parse_amount(&t.up_to).is_ok_and(|up| amount <= up))
                 .map_or(i.deposit_confirmations, |t| t.confirmations)
         });
-        // What the destination is: for a withdrawal, the Bitcoin address the
-        // bridge pays; for a deposit, the deposit address checked above.
+        // What the destination is: for a withdrawal, the address on the
+        // coin's own chain the bridge pays; for a deposit, the deposit
+        // address checked above.
         let (to_known, to_name, lookalike) = match kind {
             Kind::Deposit => ("deposit", None, None),
-            Kind::Withdraw => self.recognize(&to, Chain::Bitcoin),
+            Kind::Withdraw => self.recognize(&to, coin.l1()),
             Kind::Send => self.recognize(&to, plan.chain),
         };
         let wallet_name = self
@@ -2235,18 +2624,19 @@ impl Wallet {
                 kind.name()
             },
             chain: chain_name(plan.chain),
+            ticker: coin.ticker(),
             wallet_name,
             to: to.clone(),
             to_known,
             to_name,
             lookalike,
-            amount: format_btc(amount),
-            fee: format_btc(plan.fee),
+            amount: coin.format_amount(amount),
+            fee: coin.format_amount(plan.fee),
             fee_rate: fee_rate.filter(|_| plan.chain == Chain::Bitcoin),
-            total: format_btc(amount + plan.fee),
+            total: coin.format_amount(amount + plan.fee),
             outputs,
             credited: (kind == Kind::Deposit)
-                .then(|| vm_fee.map(|f| format_btc(amount.saturating_sub(f))))
+                .then(|| vm_fee.map(|f| coin.format_amount(amount.saturating_sub(f))))
                 .flatten(),
             confirmations: (kind == Kind::Deposit).then_some(tiers).flatten(),
             payout_fee: (kind == Kind::Withdraw)
@@ -2272,8 +2662,8 @@ impl Wallet {
     /// change. Its transaction, and those that made its coins, are checked
     /// against their ids.
     pub fn prepare_bump(&self, txid: &str, fee_rate: u64) -> Outcome<Review> {
-        let bridge = self.verified()?;
-        let (id, from) = self.own()?;
+        let bridge = self.verified(Coin::Btc)?;
+        let (id, from) = self.own(Coin::Btc)?;
         let record = self
             .record(&id)
             .and_then(|r| {
@@ -2282,7 +2672,7 @@ impl Wallet {
                     .find(|o| o.txid == txid && o.chain == "bitcoin")
             })
             .map_or_else(|| fail("that payment isn't waiting any more"), Ok)?;
-        let api = self.bridge();
+        let api = self.bridge(Coin::Btc);
         let untrusted = |message: String| Failure {
             message,
             untrusted: true,
@@ -2340,12 +2730,16 @@ impl Wallet {
             Some(p) if p.id == id => p.clone(),
             _ => return fail("that payment is no longer waiting; prepare it again"),
         };
-        let (wallet, own) = self.own()?;
+        let coin = pending.plan.chain.coin();
+        let (wallet, own) = self.own(coin)?;
         if wallet != pending.wallet {
             return fail("the active wallet changed; prepare the payment again");
         }
-        let key = self.vault(&wallet).unlock()?;
-        if key.destination() != own {
+        let secret = self.vault(&wallet).unlock_secret()?;
+        self.note_doge_address(&wallet, &secret);
+        let key = secret.key_for(coin)?;
+        drop(secret);
+        if key.destination_for(coin) != own {
             return fail("the key in the vault isn't this wallet's address; nothing was signed");
         }
         let signed = sign_plan(&key, &pending.plan)?;
@@ -2393,6 +2787,7 @@ impl Wallet {
                 r.withdrawals.insert(
                     0,
                     Withdrawal {
+                        coin: coin_name(chain.coin()),
                         txid: signed.txid.clone(),
                         to: pending.to.clone(),
                         amount: pending.amount,
@@ -2406,7 +2801,7 @@ impl Wallet {
                 r.withdrawals.truncate(50);
             }
         });
-        let result = match self.bridge().broadcast(chain, &signed.hex) {
+        let result = match self.bridge(coin).broadcast(chain, &signed.hex) {
             Ok(txid) if txid == signed.txid => {
                 if let Some(original) = &pending.replaces {
                     self.update_record(&wallet, |r| r.outgoing.retain(|o| &o.txid != original));
@@ -2466,8 +2861,9 @@ impl Wallet {
         if !valid {
             return fail("the bridge's address must be https://, like https://metalbtc.com");
         }
-        *self.bridge.guard() = (self.connect)(url);
-        *self.snapshot.guard() = Snapshot::default();
+        let side = self.side(Coin::Btc);
+        *side.bridge.guard() = (self.connect)(url);
+        *side.snapshot.guard() = Snapshot::default();
         *self.pending.guard() = None;
         self.update(|s| s.server = (url != DEFAULT_SERVER).then(|| url.to_string()));
         self.refresh();
@@ -2491,7 +2887,10 @@ impl Wallet {
                 fail("not a transaction id")
             }
         };
-        let address = || Ok::<_, Failure>(decode_address(arg, &MAINNET)?.address(&MAINNET));
+        let address = |coin: Coin| {
+            let net = coin.network();
+            Ok::<_, Failure>(decode_address(arg, &net)?.address(&net))
+        };
         Ok(match kind {
             "website" => about::WEBSITE.into(),
             "vote" => about::XPR_VOTE_URL.into(),
@@ -2499,14 +2898,28 @@ impl Wallet {
             "x" => about::X_URL.into(),
             "source" => about::SOURCE_URL.into(),
             "btcvm" => "https://metalbtc.com".into(),
+            "dogecoinvm" => DOGE_SERVER.into(),
             "tx-bitcoin" => format!("https://mempool.space/tx/{}", txid()?),
             "tx-btcvm" => format!("https://metalbtc.com/explorer#/tx/{}", txid()?),
-            "address-bitcoin" => format!("https://mempool.space/address/{}", address()?),
-            "address-btcvm" => format!("https://metalbtc.com/explorer#/address/{}", address()?),
+            "tx-dogecoin" => format!("https://blockchair.com/dogecoin/transaction/{}", txid()?),
+            "tx-dogecoinvm" => format!("{DOGE_SERVER}/explorer#/tx/{}", txid()?),
+            "address-bitcoin" => format!("https://mempool.space/address/{}", address(Coin::Btc)?),
+            "address-btcvm" => format!(
+                "https://metalbtc.com/explorer#/address/{}",
+                address(Coin::Btc)?
+            ),
+            "address-dogecoin" => format!(
+                "https://blockchair.com/dogecoin/address/{}",
+                address(Coin::Doge)?
+            ),
+            "address-dogecoinvm" => {
+                format!("{DOGE_SERVER}/explorer#/address/{}", address(Coin::Doge)?)
+            }
             "check" => {
-                let snap = self.snapshot.guard();
+                let coin = self.active_coin();
+                let snap = self.side(coin).snapshot.guard();
                 let links = self
-                    .bridge_view(&snap)
+                    .bridge_view(&snap, coin)
                     .signer_change
                     .map(|c| c.links)
                     .unwrap_or_default();
@@ -2549,6 +2962,7 @@ fn rand_id(buf: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use btcvm_wallet_core::parse_btc;
 
     fn deposit(
         amount: &str,
@@ -2608,8 +3022,32 @@ mod tests {
             deposit("0.0006", "refunded", None, false),
         ];
         let expected = 19_847 - fee + 10_000 - fee + 19_000;
-        assert_eq!(incoming(&deposits, Some(&info)), Some(format_btc(expected)));
-        assert_eq!(incoming(&deposits[3..], Some(&info)), None);
-        assert_eq!(incoming(&[], None), None);
+        let facts = Facts::from(&info);
+        assert_eq!(
+            incoming(&deposits, Some(&facts), Coin::Btc),
+            Some(format_btc(expected))
+        );
+        assert_eq!(incoming(&deposits[3..], Some(&facts), Coin::Btc), None);
+        assert_eq!(incoming(&[], None, Coin::Btc), None);
+    }
+
+    #[test]
+    fn dogecoin_deposits_on_their_way_are_pending_on_dogecoinvm() {
+        let info: DogeBridgeInfo = serde_json::from_str(include_str!(
+            "../../core/tests/fixtures/metaldoge-info-2026-10-06.json"
+        ))
+        .unwrap();
+        let facts = Facts::from(&info);
+        // DogecoinVM keeps 0.01 DOGE of each deposit.
+        let deposits = [
+            deposit("25", "confirming", None, false),
+            deposit("10", "crediting", Some("9.99"), false),
+        ];
+        assert_eq!(
+            incoming(&deposits, Some(&facts), Coin::Doge).as_deref(),
+            Some("34.98")
+        );
+        assert_eq!(facts.payout_fee.as_deref(), Some("0.10000000"));
+        assert!(facts.l1_wallet);
     }
 }

@@ -25,7 +25,9 @@ mod sealed;
 pub use hello::WindowsHello;
 pub use sealed::Sealed;
 
-use btcvm_wallet_core::{Key, MAINNET, seed};
+use btcvm_wallet_core::{
+    Coin, DOGE_MAINNET, Destination, Key, Kind, MAINNET, decode_address, seed,
+};
 use rand_core::{OsRng, RngCore};
 use std::fs;
 use std::io::Write;
@@ -106,11 +108,17 @@ impl Secret {
         }
     }
 
-    /// The key it is, or makes.
+    /// The key it is, or makes, for BTC.
     pub fn key(&self) -> Result<Key, btcvm_wallet_core::Error> {
+        self.key_for(Coin::Btc)
+    }
+
+    /// The key it is, or makes, for `coin`: a key serves every coin; a
+    /// phrase makes BIP 84's for BTC and BIP 44's for DOGE.
+    pub fn key_for(&self, coin: Coin) -> Result<Key, btcvm_wallet_core::Error> {
         match self {
             Secret::Key(k) => Key::from_bytes(k.bytes()),
-            Secret::Phrase(entropy) => seed::key_from_entropy(entropy),
+            Secret::Phrase(entropy) => seed::key_for_coin(entropy, coin),
         }
     }
 
@@ -240,6 +248,23 @@ impl<G: Gate> Vault<G> {
     /// The app checks it against the key each time it unlocks.
     pub fn address(&self) -> Result<String, VaultError> {
         Ok(self.read(&self.file())?.address)
+    }
+
+    /// The wallet's address for `coin`, read without unlocking, for showing
+    /// only. A key's DOGE address follows from its BTC one, as they share the
+    /// key's hash. A phrase makes another key for DOGE, so its address is
+    /// None here: the app learns it once the phrase is unlocked.
+    pub fn address_for(&self, coin: Coin) -> Result<Option<String>, VaultError> {
+        let file = self.read(&self.file())?;
+        match coin {
+            Coin::Btc => Ok(Some(file.address)),
+            Coin::Doge if file.kind() == sealed::KEY => {
+                let btc = decode_address(&file.address, &MAINNET).map_err(corrupt)?;
+                let doge = Destination::new(Kind::P2pkh, btc.program()).map_err(corrupt)?;
+                Ok(Some(doge.address(&DOGE_MAINNET)))
+            }
+            Coin::Doge => Ok(None),
+        }
     }
 
     /// Stores a new wallet's secret under a new Windows Hello key: Windows

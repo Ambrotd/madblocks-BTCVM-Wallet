@@ -24,8 +24,12 @@ pub struct Settings {
     pub language: Option<String>,
     /// The new peg of a signer change already notified, so it's said once.
     pub notified_signer_change: Option<String>,
+    /// The same for DogecoinVM's bridge.
+    pub notified_doge_signer_change: Option<String>,
     /// The wallet shown, by id.
     pub active: Option<String>,
+    /// The coin shown: "btc" or "doge". BTC when unset.
+    pub coin: Option<String>,
     /// The currency values are shown in too: "EUR", "USD" or "none". Unset,
     /// it follows the language.
     pub fiat: Option<String>,
@@ -72,6 +76,10 @@ pub struct WalletRecord {
     pub hardware: Option<bool>,
     /// The user has seen that Windows can't certify it.
     pub software_key_seen: bool,
+    /// Its DOGE address, for a wallet with a recovery phrase, once learned
+    /// from the unlocked phrase. A key's follows from its BTC address. Shown
+    /// only: signing checks it against the key.
+    pub doge_address: Option<String>,
     pub outgoing: Vec<Outgoing>,
     pub withdrawals: Vec<Withdrawal>,
 }
@@ -100,7 +108,7 @@ pub struct RotationProof {
 #[serde(rename_all = "camelCase")]
 pub struct Outgoing {
     pub txid: String,
-    /// "bitcoin" or "btcvm".
+    /// "bitcoin", "btcvm", "dogecoin" or "dogecoinvm".
     pub chain: String,
     /// "send", "deposit" or "withdraw".
     pub kind: String,
@@ -113,10 +121,14 @@ pub struct Outgoing {
     pub time: u64,
 }
 
-/// A withdrawal to Bitcoin, followed until the bridge's payout confirms.
+/// A withdrawal to the coin's own chain, followed until the bridge's payout
+/// confirms.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Withdrawal {
+    /// "doge" for DogecoinVM's bridge; empty for BTCVM's, as before DOGE.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub coin: String,
     pub txid: String,
     pub to: String,
     pub amount: u64,
@@ -157,6 +169,7 @@ pub fn load(dir: &Path) -> Settings {
             backup_required: s.backup_required,
             hardware: None,
             software_key_seen: false,
+            doge_address: None,
             outgoing: std::mem::take(&mut s.outgoing),
             withdrawals: std::mem::take(&mut s.withdrawals),
         });

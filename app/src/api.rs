@@ -1,8 +1,9 @@
-//! The bridge's public API (`btcvm serve`), the one metalbtc.com's web wallet
-//! uses. It holds no keys, and nothing it says moves coins unchecked: the
-//! core verifies what matters before anything is signed.
+//! The bridges' public API (`btcvm serve`, `dogevm serve`), the one
+//! metalbtc.com's and metaldoge.com's web wallets use. It holds no keys, and
+//! nothing it says moves coins unchecked: the core verifies what matters
+//! before anything is signed.
 
-use btcvm_wallet_core::{BridgeInfo, Chain, Utxo};
+use btcvm_wallet_core::{BridgeInfo, Chain, DogeBridgeInfo, Utxo};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -10,6 +11,8 @@ use std::io::{BufRead, BufReader, Read};
 use std::time::Duration;
 
 pub const DEFAULT_SERVER: &str = "https://metalbtc.com";
+/// DogecoinVM's bridge.
+pub const DOGE_SERVER: &str = "https://metaldoge.com";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,11 +59,16 @@ pub struct PegOutStatus {
     pub payment_confirmations: Option<i64>,
 }
 
+/// The bridge's `/api/status`. DogecoinVM's names its chains its own way;
+/// the fields are read under either name.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeStatus {
+    #[serde(alias = "dogecoinvmHeight")]
     pub btcvm_height: Option<i64>,
+    #[serde(alias = "dogecoinHeight")]
     pub bitcoin_height: Option<i64>,
+    #[serde(alias = "dogecoinSync")]
     pub bitcoin_sync: Option<SyncState>,
     /// Set while the operators have paused the bridge.
     pub paused: Option<serde_json::Value>,
@@ -105,7 +113,8 @@ pub struct ListedOut {
     pub scriptpubkey: String,
 }
 
-/// BTC's price in dollars and euros, from mempool.space.
+/// A coin's price in dollars and euros: BTC's from mempool.space, DOGE's
+/// from CoinGecko.
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Prices {
     #[serde(rename = "USD")]
@@ -145,6 +154,33 @@ pub trait Api: Send + Sync {
     fn prices(&self) -> Result<Prices, ApiError>;
     fn bitcoin_address_txs(&self, address: &str) -> Result<Vec<ListedTx>, ApiError>;
     fn bitcoin_balance(&self, address: &str) -> Result<u64, ApiError>;
+
+    /// DogecoinVM's bridge's `/api/info`. Only that bridge serves it.
+    fn doge_info(&self) -> Result<DogeBridgeInfo, ApiError> {
+        Err(not_served("DogecoinVM's bridge info"))
+    }
+
+    /// Registers `address` on a coin's own chain with the bridge, which then
+    /// serves its balance and history there.
+    fn watch(&self, chain: Chain, address: &str) -> Result<(), ApiError> {
+        match chain {
+            Chain::Bitcoin => self.watch_bitcoin(address),
+            _ => Err(not_served("registering that address")),
+        }
+    }
+
+    /// DOGE's price.
+    fn doge_prices(&self) -> Result<Prices, ApiError> {
+        Err(not_served("DOGE's price"))
+    }
+}
+
+/// What a stand-in answers for something it doesn't serve.
+fn not_served(what: &str) -> ApiError {
+    ApiError {
+        status: 404,
+        message: format!("{what} isn't served here"),
+    }
 }
 
 impl Api for Bridge {
@@ -193,6 +229,15 @@ impl Api for Bridge {
     fn bitcoin_balance(&self, address: &str) -> Result<u64, ApiError> {
         Bridge::bitcoin_balance(self, address)
     }
+    fn doge_info(&self) -> Result<DogeBridgeInfo, ApiError> {
+        Bridge::doge_info(self)
+    }
+    fn watch(&self, chain: Chain, address: &str) -> Result<(), ApiError> {
+        Bridge::watch(self, chain, address)
+    }
+    fn doge_prices(&self) -> Result<Prices, ApiError> {
+        Bridge::doge_prices(self)
+    }
 }
 
 /// Where a bridge serves `what` for `chain`: the VMs' under `/api`, each
@@ -238,8 +283,30 @@ impl Bridge {
         self.get(&chain_path(chain, &format!("address/{address}")))
     }
 
+    /// DogecoinVM's bridge's `/api/info`.
+    pub fn doge_info(&self) -> Result<DogeBridgeInfo, ApiError> {
+        self.get("/api/info")
+    }
+
     pub fn watch_bitcoin(&self, address: &str) -> Result<(), ApiError> {
-        let _: serde_json::Value = self.post("/api/btc/watch", json!({ "address": address }))?;
+        self.watch(Chain::Bitcoin, address)
+    }
+
+    /// Registers `address` on Bitcoin (BTCVM's bridge) or Dogecoin
+    /// (DogecoinVM's): until then the bridge answers 404 for it there.
+    pub fn watch(&self, chain: Chain, address: &str) -> Result<(), ApiError> {
+        check_address(address)?;
+        let path = match chain {
+            Chain::Bitcoin => "/api/btc/watch",
+            Chain::Dogecoin => "/api/doge/watch",
+            Chain::Btcvm | Chain::Dogecoinvm => {
+                return Err(ApiError {
+                    status: 0,
+                    message: "only an address on a coin's own chain is registered".into(),
+                });
+            }
+        };
+        let _: serde_json::Value = self.post(path, json!({ "address": address }))?;
         Ok(())
     }
 
@@ -397,6 +464,30 @@ impl Bridge {
         )
     }
 
+    /// DOGE's price from CoinGecko, as metaldoge.com's web wallet takes it,
+    /// to show values in a currency. Nothing is signed or sized from it.
+    pub fn doge_prices(&self) -> Result<Prices, ApiError> {
+        #[derive(Deserialize)]
+        struct Pair {
+            usd: f64,
+            eur: f64,
+        }
+        #[derive(Deserialize)]
+        struct Gecko {
+            dogecoin: Pair,
+        }
+        let g: Gecko = decode(
+            self.agent
+                .get("https://api.coingecko.com/api/v3/simple/price?ids=dogecoin&vs_currencies=usd,eur")
+                .call()
+                .map_err(network)?,
+        )?;
+        Ok(Prices {
+            usd: g.dogecoin.usd,
+            eur: g.dogecoin.eur,
+        })
+    }
+
     fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         decode(
             self.agent
@@ -506,5 +597,21 @@ mod tests {
         if let Err(e) = bridge.info() {
             panic!("{} (status {})", e.message, e.status);
         }
+    }
+
+    #[test]
+    #[ignore = "needs the network"]
+    fn reaches_the_live_doge_bridge_and_its_price() {
+        let bridge = Bridge::new(DOGE_SERVER);
+        if let Err(e) = bridge.doge_info() {
+            panic!("{} (status {})", e.message, e.status);
+        }
+        let status = bridge.status().unwrap();
+        assert!(
+            status.bitcoin_height.is_some(),
+            "Dogecoin's height, read as the L1's"
+        );
+        let p = bridge.doge_prices().unwrap();
+        assert!(p.usd > 0.0 && p.eur > 0.0);
     }
 }

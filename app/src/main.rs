@@ -19,7 +19,7 @@ mod update;
 mod wallet;
 mod winapi;
 
-use btcvm_wallet_core::about;
+use btcvm_wallet_core::{Coin, about};
 use serde::Serialize;
 use std::io::BufRead;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -349,6 +349,22 @@ async fn remove_wallet(app: AppHandle, w: State<'_, Shared>) -> Result<View, Fai
 async fn select_wallet(id: String, w: State<'_, Shared>) -> Result<View, Failure> {
     let w = w.inner().clone();
     logged("switching wallets", blocking(move || w.select(&id)).await?)
+}
+
+#[tauri::command]
+async fn set_coin(coin: String, w: State<'_, Shared>) -> Result<View, Failure> {
+    let w = w.inner().clone();
+    blocking(move || w.set_coin(&coin)).await?
+}
+
+/// Unlocks a phrase wallet's DOGE address with Windows Hello, once.
+#[tauri::command]
+async fn learn_doge_address(w: State<'_, Shared>) -> Result<View, Failure> {
+    let w = w.inner().clone();
+    logged(
+        "showing the DOGE address",
+        blocking(move || w.learn_doge_address()).await?,
+    )
 }
 
 #[tauri::command]
@@ -782,24 +798,28 @@ fn main() {
                     std::thread::sleep(Duration::from_secs(30));
                 }
             });
-            // And at once when a block lands on either chain.
-            std::thread::spawn(move || {
-                loop {
-                    if let Ok(stream) = w.events() {
-                        for line in stream.lines() {
-                            match line {
-                                Ok(l) if l.starts_with("data:") => guarded(|| {
-                                    w.refresh();
-                                    publish(&handle, &w);
-                                }),
-                                Ok(_) => {}
-                                Err(_) => break,
+            // And at once when a block lands on any chain: each coin's bridge
+            // streams its own two.
+            for coin in Coin::ALL {
+                let (w, handle) = (w.clone(), handle.clone());
+                std::thread::spawn(move || {
+                    loop {
+                        if let Ok(stream) = w.events(coin) {
+                            for line in stream.lines() {
+                                match line {
+                                    Ok(l) if l.starts_with("data:") => guarded(|| {
+                                        w.refresh();
+                                        publish(&handle, &w);
+                                    }),
+                                    Ok(_) => {}
+                                    Err(_) => break,
+                                }
                             }
                         }
+                        std::thread::sleep(Duration::from_secs(3));
                     }
-                    std::thread::sleep(Duration::from_secs(3));
-                }
-            });
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -808,6 +828,8 @@ fn main() {
             refresh,
             create_wallet,
             select_wallet,
+            set_coin,
+            learn_doge_address,
             rename_wallet,
             add_contact,
             rename_contact,
