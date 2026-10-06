@@ -1,0 +1,50 @@
+{
+  "chainID": "2hFCfzdMmfXBxYgvvdL7BYiJAxdejyn4AksMYUM2eM5gN7Xrjy",
+  "confirmationTiers": [
+    {
+      "confirmations": 1,
+      "upTo": "1.00000000"
+    },
+    {
+      "confirmations": 6,
+      "upTo": "10.00000000"
+    },
+    {
+      "confirmations": 12,
+      "upTo": "50.00000000"
+    }
+  ],
+  "depositConfirmations": 20,
+  "dogeFee": "0.10000000",
+  "dogeWallet": true,
+  "dogecoinNetwork": "mainnet",
+  "dogecoinVersions": {
+    "p2pkh": 30,
+    "p2sh": 22,
+    "wif": 158
+  },
+  "dogecoinvmNetwork": "dogecoinvm",
+  "dogecoinvmVersions": {
+    "p2pkh": 30,
+    "p2sh": 22,
+    "wif": 158
+  },
+  "faucet": {
+    "enabled": false
+  },
+  "maxCirculating": "4200.00000000",
+  "maxDeposit": "100.00000000",
+  "minDeposit": "1.00000000",
+  "minPegOut": "2.00000000",
+  "pegAddress": "AAvNfukpAa4iTcRJPetxuxX8XxbC5gFqUM",
+  "reserveAddress": "AAvNfukpAa4iTcRJPetxuxX8XxbC5gFqUM",
+  "signers": {
+    "publicKeys": [
+      "0212a08e8202cce3b40358ca5c053bb459f181b86d29461df55eae5d67b521d6dd",
+      "021a9809b50f71b1958f1d35a3c2a3465925a10241c5c5dee57eb605430b78c6ed",
+      "02459fb2c6931a7fef5a4587cfd2b30dbf1d950a8e86d76ea2bf6b060f585c9037"
+    ],
+    "required": 2
+  },
+  "vmFee": "0.01000000"
+}

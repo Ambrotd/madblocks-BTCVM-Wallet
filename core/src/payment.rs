@@ -1,10 +1,12 @@
 //! Planning and signing payments from the wallet's P2WPKH coins, as the web
 //! wallet's chain.js does: the same choice of coins, the same fees and the
-//! same bytes.
+//! same bytes. Payments on Dogecoin and DogecoinVM go to [`crate::doge`],
+//! which does the same for their legacy coins.
 
-use crate::address::{Destination, Kind, Network, push_data};
-use crate::amount::{MAX_MONEY, format_btc};
-use crate::bridge::peg_out_destination;
+use crate::address::{DOGE_MAINNET, Destination, Kind, MAINNET, Network, push_data};
+use crate::amount::{MAX_MONEY, format_btc, parse_btc};
+use crate::bridge::peg_out_destination_for;
+use crate::doge;
 use crate::keys::Key;
 use crate::tx::{SEQUENCE, TX_VERSION, Tx, TxIn, TxOut, parse_tx, vsize};
 use crate::{Error, Result, invalid, untrusted};
@@ -27,26 +29,114 @@ pub const MAX_FEE: u64 = 250_000;
 /// Nor pay more than this fee rate, in sat/vB, whatever the bridge suggests.
 pub const MAX_FEE_RATE: u64 = 1_000;
 
-/// Which chain a payment is on. They share formats, not coins.
+/// Which chain a payment is on. A coin's two chains share formats, not
+/// coins: Bitcoin and BTCVM hold BTC, Dogecoin and DogecoinVM hold DOGE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Chain {
     Bitcoin,
     Btcvm,
+    Dogecoin,
+    Dogecoinvm,
 }
 
 impl Chain {
+    pub const ALL: [Chain; 4] = [
+        Chain::Bitcoin,
+        Chain::Btcvm,
+        Chain::Dogecoin,
+        Chain::Dogecoinvm,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
             Chain::Bitcoin => "Bitcoin",
             Chain::Btcvm => "BTCVM",
+            Chain::Dogecoin => "Dogecoin",
+            Chain::Dogecoinvm => "DogecoinVM",
         }
     }
 
+    /// The coin the chain holds.
+    pub fn coin(self) -> Coin {
+        match self {
+            Chain::Bitcoin | Chain::Btcvm => Coin::Btc,
+            Chain::Dogecoin | Chain::Dogecoinvm => Coin::Doge,
+        }
+    }
+
+    /// Whether it is the coin's chain on Metal, rather than the coin's own.
+    pub fn is_vm(self) -> bool {
+        matches!(self, Chain::Btcvm | Chain::Dogecoinvm)
+    }
+
+    /// The smallest payment.
     fn dust(self) -> u64 {
         match self {
             Chain::Bitcoin => DUST,
             Chain::Btcvm => VM_DUST,
+            Chain::Dogecoin | Chain::Dogecoinvm => doge::HARD_DUST,
+        }
+    }
+}
+
+/// A coin the wallet holds, each on its own chain and on its VM on Metal,
+/// with its own bridge between them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Coin {
+    Btc,
+    Doge,
+}
+
+impl Coin {
+    pub const ALL: [Coin; 2] = [Coin::Btc, Coin::Doge];
+
+    pub fn ticker(self) -> &'static str {
+        match self {
+            Coin::Btc => "BTC",
+            Coin::Doge => "DOGE",
+        }
+    }
+
+    /// The coin's own chain.
+    pub fn l1(self) -> Chain {
+        match self {
+            Coin::Btc => Chain::Bitcoin,
+            Coin::Doge => Chain::Dogecoin,
+        }
+    }
+
+    /// Its chain on Metal.
+    pub fn vm(self) -> Chain {
+        match self {
+            Coin::Btc => Chain::Btcvm,
+            Coin::Doge => Chain::Dogecoinvm,
+        }
+    }
+
+    /// Its mainnet address and key encodings, the same on both its chains.
+    pub fn network(self) -> Network {
+        match self {
+            Coin::Btc => MAINNET,
+            Coin::Doge => DOGE_MAINNET,
+        }
+    }
+
+    /// Parses an amount of the coin, like "0.0025" or "12.5", into its
+    /// smallest units (satoshis, koinu).
+    pub fn parse_amount(self, s: &str) -> Result<u64> {
+        match self {
+            Coin::Btc => parse_btc(s),
+            Coin::Doge => doge::parse_doge(s),
+        }
+    }
+
+    /// Formats an amount of its smallest units, without trailing zeros.
+    pub fn format_amount(self, units: u64) -> String {
+        match self {
+            Coin::Btc => format_btc(units),
+            Coin::Doge => doge::format_doge(units),
         }
     }
 }
@@ -71,9 +161,10 @@ pub struct Request {
     pub chain: Chain,
     pub to: Destination,
     pub amount: u64,
-    /// An OP_RETURN to carry, such as a BVMO withdrawal tag.
+    /// An OP_RETURN to carry, such as a BVMO or DVMO withdrawal tag.
     pub data: Option<Vec<u8>>,
-    /// sat/vB on Bitcoin. BTCVM pays its relay minimum and ignores it.
+    /// sat/vB on Bitcoin. BTCVM pays its relay minimum and ignores it, and
+    /// Dogecoin and DogecoinVM pay their fixed rates.
     pub fee_rate: u64,
 }
 
@@ -84,9 +175,9 @@ pub struct Plan {
     pub chain: Chain,
     pub fee: u64,
     pub total_in: u64,
-    tx: Tx,
-    from: Destination,
-    unsigned: Vec<u8>,
+    pub(crate) tx: Tx,
+    pub(crate) from: Destination,
+    pub(crate) unsigned: Vec<u8>,
 }
 
 impl Plan {
@@ -112,7 +203,7 @@ impl Plan {
 
     /// The outputs described for the review screen.
     pub fn describe(&self, net: &Network) -> Vec<OutputView> {
-        describe_outputs(&self.tx.outputs, &self.from, net)
+        describe_outputs(&self.tx.outputs, &self.from, net, self.chain.coin())
     }
 }
 
@@ -135,6 +226,9 @@ pub fn plan_payment(
     raw_txs: &HashMap<String, String>,
     req: &Request,
 ) -> Result<Plan> {
+    if req.chain.coin() == Coin::Doge {
+        return doge::plan_payment(from, utxos, raw_txs, req);
+    }
     if from.kind() != Kind::P2wpkh {
         return invalid("the wallet spends only its own native SegWit coins");
     }
@@ -224,6 +318,9 @@ pub fn max_payment(
     raw_txs: &HashMap<String, String>,
     req: &Request,
 ) -> Result<u64> {
+    if req.chain.coin() == Coin::Doge {
+        return doge::max_payment(from, utxos, raw_txs, req);
+    }
     if from.kind() != Kind::P2wpkh {
         return invalid("the wallet spends only its own native SegWit coins");
     }
@@ -262,7 +359,10 @@ pub fn max_payment(
 }
 
 /// The confirmed coins paying `from_script`, each once, in the server's order.
-fn spendable<'a>(utxos: &'a [Utxo], from_script: &[u8]) -> impl Iterator<Item = &'a Utxo> {
+pub(crate) fn spendable<'a>(
+    utxos: &'a [Utxo],
+    from_script: &[u8],
+) -> impl Iterator<Item = &'a Utxo> {
     let from_hex = hex::encode(from_script);
     let mut seen = std::collections::HashSet::new();
     utxos.iter().filter(move |u| {
@@ -271,7 +371,7 @@ fn spendable<'a>(utxos: &'a [Utxo], from_script: &[u8]) -> impl Iterator<Item = 
 }
 
 /// A payment's own outputs: what it pays, then any OP_RETURN.
-fn payment_outputs(req: &Request) -> Result<Vec<TxOut>> {
+pub(crate) fn payment_outputs(req: &Request) -> Result<Vec<TxOut>> {
     let mut outputs = vec![TxOut {
         value: req.amount,
         script: req.to.pk_script(),
@@ -302,6 +402,7 @@ fn fee_for(req: &Request, vsize: u64) -> u64 {
     match req.chain {
         Chain::Bitcoin => vsize * req.fee_rate,
         Chain::Btcvm => vm_fee(vsize),
+        Chain::Dogecoin | Chain::Dogecoinvm => unreachable!("DOGE payments are planned in doge.rs"),
     }
 }
 
@@ -319,7 +420,11 @@ pub fn vm_fee(vsize: u64) -> u64 {
 /// bytes. A SegWit signature commits to the value it spends, so a wrong one
 /// would only make the payment invalid; checking first gives a clear error,
 /// and confirms the output is the wallet's.
-fn verified_input(u: &Utxo, raw_txs: &HashMap<String, String>, from_script: &[u8]) -> Result<TxIn> {
+pub(crate) fn verified_input(
+    u: &Utxo,
+    raw_txs: &HashMap<String, String>,
+    from_script: &[u8],
+) -> Result<TxIn> {
     let raw = raw_txs
         .get(&u.txid)
         .ok_or_else(|| Error::Invalid(format!("no transaction {}", u.txid)))?;
@@ -347,6 +452,7 @@ fn verified_input(u: &Utxo, raw_txs: &HashMap<String, String>, from_script: &[u8
         vout: u.vout,
         value: out.value,
         sequence: SEQUENCE,
+        script_sig: Vec::new(),
         witness: Vec::new(),
     })
 }
@@ -354,23 +460,37 @@ fn verified_input(u: &Utxo, raw_txs: &HashMap<String, String>, from_script: &[u8
 /// Signs a plan with the key whose coins it spends, then reads the signed
 /// transaction back and checks it spends and pays exactly what was reviewed.
 pub fn sign_plan(key: &Key, plan: &Plan) -> Result<Signed> {
+    if plan.chain.coin() == Coin::Doge {
+        return doge::sign_plan(key, plan);
+    }
     let from = key.destination();
     if from != plan.from {
         return invalid("this key does not own the plan's coins");
     }
     let mut tx = plan.tx.clone();
-    let signing = key.signing_key();
     let public = key.public_key();
     for i in 0..tx.inputs.len() {
-        let hash = tx.sighash(i, from.program());
-        let sig: Signature = signing
-            .sign_prehash(&hash)
-            .map_err(|e| Error::Invalid(e.to_string()))?;
-        let sig = sig.normalize_s().unwrap_or(sig);
-        let mut der = sig.to_der().as_bytes().to_vec();
-        der.push(1); // SIGHASH_ALL
+        let der = signature(key, &tx.sighash(i, from.program()))?;
         tx.inputs[i].witness = vec![der, public.to_vec()];
     }
+    checked_signed(&tx, plan)
+}
+
+/// A low-S DER signature of `hash` with `key`, and SIGHASH_ALL.
+pub(crate) fn signature(key: &Key, hash: &[u8; 32]) -> Result<Vec<u8>> {
+    let sig: Signature = key
+        .signing_key()
+        .sign_prehash(hash)
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    let sig = sig.normalize_s().unwrap_or(sig);
+    let mut der = sig.to_der().as_bytes().to_vec();
+    der.push(1); // SIGHASH_ALL
+    Ok(der)
+}
+
+/// Reads the signed `tx` back, checks it spends and pays exactly what
+/// `plan` showed for review, and returns it ready to broadcast.
+pub(crate) fn checked_signed(tx: &Tx, plan: &Plan) -> Result<Signed> {
     let raw = tx.serialize();
     let signed = parse_tx(&raw)?;
     let reviewed = parse_tx(&plan.unsigned)?;
@@ -480,7 +600,7 @@ pub fn build_payment(
     raw_txs: &HashMap<String, String>,
     req: &Request,
 ) -> Result<Signed> {
-    let plan = plan_payment(&key.destination(), utxos, raw_txs, req)?;
+    let plan = plan_payment(&key.destination_for(req.chain.coin()), utxos, raw_txs, req)?;
     sign_plan(key, &plan)
 }
 
@@ -495,15 +615,22 @@ pub struct OutputView {
     pub address: Option<String>,
     /// An OP_RETURN's data, hex.
     pub data: Option<String>,
-    /// For a BVMO tag: the Bitcoin address the bridge is asked to pay.
+    /// For a withdrawal tag (BVMO, DVMO): the address on the coin's own
+    /// chain the bridge is asked to pay.
     pub withdrawal_to: Option<String>,
     /// Pays back to the wallet.
     pub change: bool,
 }
 
 /// Describes outputs for review: whom each pays, which is change back to
-/// `own`, and where a BVMO tag asks the bridge to send a withdrawal.
-pub fn describe_outputs(outputs: &[TxOut], own: &Destination, net: &Network) -> Vec<OutputView> {
+/// `own`, and where a withdrawal tag of `coin`'s bridge asks it to send a
+/// withdrawal.
+pub fn describe_outputs(
+    outputs: &[TxOut],
+    own: &Destination,
+    net: &Network,
+    coin: Coin,
+) -> Vec<OutputView> {
     outputs
         .iter()
         .map(|o| {
@@ -514,7 +641,9 @@ pub fn describe_outputs(outputs: &[TxOut], own: &Destination, net: &Network) -> 
                 script: hex::encode(&o.script),
                 change: dest.as_ref() == Some(own),
                 address: dest.map(|d| d.address(net)),
-                withdrawal_to: data.and_then(peg_out_destination).map(|d| d.address(net)),
+                withdrawal_to: data
+                    .and_then(|d| peg_out_destination_for(coin, d))
+                    .map(|d| d.address(net)),
                 data: data.map(hex::encode),
             }
         })

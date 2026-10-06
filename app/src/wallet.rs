@@ -464,6 +464,8 @@ fn chain_name(chain: Chain) -> &'static str {
     match chain {
         Chain::Bitcoin => "bitcoin",
         Chain::Btcvm => "btcvm",
+        Chain::Dogecoin => "dogecoin",
+        Chain::Dogecoinvm => "dogecoinvm",
     }
 }
 
@@ -490,6 +492,11 @@ fn source_name(source: CheckSource) -> &'static str {
         CheckSource::BtcvmExplorer => "btcvmExplorer",
         CheckSource::RotationProcedure => "rotationProcedure",
         CheckSource::WalletMaker => "walletMaker",
+        CheckSource::OldPegOnDogecoin => "oldPegOnDogecoin",
+        CheckSource::NewPegOnDogecoin => "newPegOnDogecoin",
+        CheckSource::DogecoinvmDocs => "dogecoinvmDocs",
+        CheckSource::DogecoinvmExplorer => "dogecoinvmExplorer",
+        CheckSource::DogecoinvmSigners => "dogecoinvmSigners",
     }
 }
 
@@ -909,7 +916,7 @@ impl Wallet {
                 .filter(|b| b.max_deposit > 0)
                 .map(|b| format_btc(b.max_deposit)),
             min_peg_out: snap.bridge.as_ref().map(|b| format_btc(b.min_peg_out)),
-            fee_rate: snap.bridge.as_ref().map(|b| b.btc_fee_rate),
+            fee_rate: snap.bridge.as_ref().map(|b| b.fee_rate),
             vm_fee: info.vm_fee.clone(),
             payout_fee: info.payout_fee.clone(),
             paused: status.paused.is_some(),
@@ -1409,6 +1416,9 @@ impl Wallet {
                 .take(20)
                 .map(|t| t.txid)
                 .collect(),
+            // Following a rotation is BTCVM's: DogecoinVM's bridge can't
+            // move to a new set yet.
+            Chain::Dogecoin | Chain::Dogecoinvm => return None,
         };
         txids.iter().find_map(|txid| {
             let raw = hex::decode(api.raw_tx(chain, txid).ok()?.trim()).ok()?;
@@ -1827,7 +1837,7 @@ impl Wallet {
             .unwrap()
             .bridge
             .as_ref()
-            .map(|b| b.btc_fee_rate);
+            .map(|b| b.fee_rate);
         let fees: Option<FeeEstimates> = self.bridge().recommended_fees().ok();
         let rate = |f: Option<f64>| {
             f.filter(|r| r.is_finite())
@@ -1848,7 +1858,7 @@ impl Wallet {
     /// The fee rate for a Bitcoin payment: the user's, or the bridge's
     /// estimate. The core refuses one outside its bounds.
     fn fee_rate(bridge: &VerifiedBridge, chosen: Option<u64>) -> u64 {
-        chosen.unwrap_or(bridge.btc_fee_rate)
+        chosen.unwrap_or(bridge.fee_rate)
     }
 
     // --- receiving, values and the history -----------------------------------
@@ -1989,6 +1999,9 @@ impl Wallet {
             let view = match chain {
                 Chain::Bitcoin => &snap.bitcoin,
                 Chain::Btcvm => &snap.btcvm,
+                Chain::Dogecoin | Chain::Dogecoinvm => {
+                    return fail("DOGE isn't available in this wallet yet");
+                }
             };
             let Some(view) = view else {
                 return fail(format!("your {} balance hasn't loaded yet", chain.name()));
@@ -2034,7 +2047,7 @@ impl Wallet {
         };
         let to = book::canonical(to.trim(), &MAINNET)?;
         let mut bridge_for_fee = bridge.clone();
-        bridge_for_fee.btc_fee_rate = Self::fee_rate(&bridge, fee_rate);
+        bridge_for_fee.fee_rate = Self::fee_rate(&bridge, fee_rate);
         let plan = plan_send(&bridge_for_fee, chain, &from, coins, &to, amount)?;
         let rate = Self::fee_rate(&bridge, fee_rate);
         Ok(self.review(Kind::Send, id, plan, to, amount, &bridge, Some(rate), None))
@@ -2055,7 +2068,7 @@ impl Wallet {
             raw_txs: &raw,
         };
         let mut bridge_for_fee = bridge.clone();
-        bridge_for_fee.btc_fee_rate = Self::fee_rate(&bridge, fee_rate);
+        bridge_for_fee.fee_rate = Self::fee_rate(&bridge, fee_rate);
         let plan = plan_deposit(&bridge_for_fee, &from, coins, amount, &told)?;
         let rate = Self::fee_rate(&bridge, fee_rate);
         Ok(self.review(

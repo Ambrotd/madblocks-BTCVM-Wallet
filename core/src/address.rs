@@ -1,5 +1,6 @@
 //! Addresses and output scripts. Bitcoin and BTCVM share every format, so a
-//! key or script has the same address on both.
+//! key or script has the same address on both; so do Dogecoin and
+//! DogecoinVM, with Dogecoin's.
 
 use crate::encoding::{CHARSET, check_decode, check_encode, segwit_decode, segwit_encode};
 use crate::{Result, invalid};
@@ -27,6 +28,15 @@ pub const TESTNET: Network = Network {
     p2sh: 196,
     wif: 239,
     hrp: "tb",
+};
+
+/// Dogecoin mainnet's encodings, which DogecoinVM mainnet shares. Dogecoin
+/// has no SegWit, so no bech32 part: its addresses are `D…` and `A…`.
+pub const DOGE_MAINNET: Network = Network {
+    p2pkh: 30,
+    p2sh: 22,
+    wif: 158,
+    hrp: "",
 };
 
 /// Destination kinds, numbered as in btc-vm's `tags.go`: the number travels
@@ -141,12 +151,14 @@ impl Destination {
 
 /// Decodes an address for the network `net`: base58 (`1…`, `3…`) or
 /// segwit (`bc1q…`, `bc1p…`). Other witness versions are refused: nothing
-/// can spend them yet, so paying one would burn the coins.
+/// can spend them yet, so paying one would burn the coins. A network without
+/// SegWit (Dogecoin) takes base58 only.
 pub fn decode_address(address: &str, net: &Network) -> Result<Destination> {
     let address = address.trim();
-    if address
-        .to_ascii_lowercase()
-        .starts_with(&format!("{}1", net.hrp))
+    if !net.hrp.is_empty()
+        && address
+            .to_ascii_lowercase()
+            .starts_with(&format!("{}1", net.hrp))
     {
         let (version, program) = segwit_decode(address, net.hrp)?;
         return match (version, program.len()) {

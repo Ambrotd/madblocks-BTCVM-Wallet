@@ -1,11 +1,11 @@
-//! The three things the wallet does, with the bridge's rules enforced: send
-//! on either chain, move BTC to BTCVM (a deposit) and back (a withdrawal).
-//! Each returns a plan for review; nothing is signed here.
+//! The three things the wallet does with each coin, with its bridge's rules
+//! enforced: send on either of the coin's chains, move it to its VM on Metal
+//! (a deposit) and back (a withdrawal). Each returns a plan for review;
+//! nothing is signed here.
 
 use crate::address::{Destination, decode_address};
-use crate::amount::format_btc;
-use crate::bridge::{VerifiedBridge, peg_out_data};
-use crate::payment::{Chain, Plan, Request, Utxo, plan_payment};
+use crate::bridge::{VerifiedBridge, peg_out_data_for};
+use crate::payment::{Chain, Coin, Plan, Request, Utxo, plan_payment};
 use crate::{Result, invalid, untrusted};
 use std::collections::HashMap;
 
@@ -22,6 +22,19 @@ pub struct Coins<'a> {
 pub const PAUSED_BY_SIGNER_CHANGE: &str = "the bridge's signers have changed, so moving coins between \
      Bitcoin and BTCVM is paused until the wallet is updated with the new set; sends still work";
 
+/// [`PAUSED_BY_SIGNER_CHANGE`], for `coin`'s bridge.
+pub fn paused_by_signer_change(coin: Coin) -> String {
+    match coin {
+        Coin::Btc => PAUSED_BY_SIGNER_CHANGE.into(),
+        _ => format!(
+            "the bridge's signers have changed, so moving coins between {} and {} is paused until \
+             the wallet is updated with the new set; sends still work",
+            coin.l1().name(),
+            coin.vm().name()
+        ),
+    }
+}
+
 /// A payment on `chain` to an address the user typed or pasted. Paying the
 /// peg directly is refused: without a tag the bridge can't tell whose coins
 /// they are, and they would sit there unclaimed.
@@ -33,15 +46,23 @@ pub fn plan_send(
     to: &str,
     amount: u64,
 ) -> Result<Plan> {
+    if chain.coin() != bridge.coin {
+        return invalid(format!(
+            "{} isn't one of this bridge's chains",
+            chain.name()
+        ));
+    }
     let to = decode_address(to, &bridge.net)?;
     if bridge.is_peg(&to) {
-        return invalid(match chain {
-            Chain::Bitcoin => {
-                "that is the bridge's own address; use Move to BTCVM, which pays your personal deposit address"
-            }
-            Chain::Btcvm => {
-                "that is the bridge's reserve; use Withdraw to Bitcoin, which tags the payment with your Bitcoin address"
-            }
+        let (l1, vm) = (bridge.coin.l1().name(), bridge.coin.vm().name());
+        return invalid(if chain.is_vm() {
+            format!(
+                "that is the bridge's reserve; use Withdraw to {l1}, which tags the payment with your {l1} address"
+            )
+        } else {
+            format!(
+                "that is the bridge's own address; use Move to {vm}, which pays your personal deposit address"
+            )
         });
     }
     plan_payment(
@@ -53,16 +74,16 @@ pub fn plan_send(
             to,
             amount,
             data: None,
-            fee_rate: bridge.btc_fee_rate,
+            fee_rate: bridge.fee_rate,
         },
     )
 }
 
-/// A deposit: pays `from`'s personal deposit address on Bitcoin, and the
-/// bridge credits the same address on BTCVM once the deposit has enough
-/// confirmations. The address is derived here from the pinned signers;
-/// `told` is the one the bridge gave (`POST /api/deposit-address`, which
-/// also registers it), and they must match.
+/// A deposit: pays `from`'s personal deposit address on the coin's own
+/// chain, and the bridge credits the same address on its VM once the
+/// deposit has enough confirmations. The address is derived here from the
+/// pinned signers; `told` is the one the bridge gave (`POST
+/// /api/deposit-address`, which also registers it), and they must match.
 pub fn plan_deposit(
     bridge: &VerifiedBridge,
     from: &Destination,
@@ -70,22 +91,24 @@ pub fn plan_deposit(
     amount: u64,
     told: &str,
 ) -> Result<Plan> {
+    let coin = bridge.coin;
     if bridge.signer_change.is_some() {
-        return untrusted(PAUSED_BY_SIGNER_CHANGE);
+        return untrusted(paused_by_signer_change(coin));
     }
+    let ticker = coin.ticker();
     if amount < bridge.min_deposit {
         return invalid(format!(
-            "the smallest deposit is {} BTC; a smaller one is not credited",
-            format_btc(bridge.min_deposit)
+            "the smallest deposit is {} {ticker}; a smaller one is not credited",
+            coin.format_amount(bridge.min_deposit)
         ));
     }
     if bridge.max_deposit > 0 && amount > bridge.max_deposit {
         return invalid(format!(
-            "a deposit can be at most {} BTC for now; a larger one is held for a refund",
-            format_btc(bridge.max_deposit)
+            "a deposit can be at most {} {ticker} for now; a larger one is held for a refund",
+            coin.format_amount(bridge.max_deposit)
         ));
     }
-    let deposit = bridge.signers.deposit_destination(from)?;
+    let deposit = bridge.signers.deposit_destination_for(coin, from)?;
     if decode_address(told, &bridge.net).ok().as_ref() != Some(&deposit) {
         return untrusted(
             "the bridge gave a deposit address that doesn't follow from the peg's signers, so nothing was sent",
@@ -96,18 +119,18 @@ pub fn plan_deposit(
         coins.utxos,
         coins.raw_txs,
         &Request {
-            chain: Chain::Bitcoin,
+            chain: coin.l1(),
             to: deposit,
             amount,
             data: None,
-            fee_rate: bridge.btc_fee_rate,
+            fee_rate: bridge.fee_rate,
         },
     )
 }
 
-/// A withdrawal: pays the reserve on BTCVM with a BVMO tag naming `to` on
-/// Bitcoin. Once the payment is final, the bridge pays the amount there,
-/// less Bitcoin's network fee.
+/// A withdrawal: pays the reserve on the VM with a tag (BVMO, DVMO) naming
+/// `to` on the coin's own chain. Once the payment is final, the bridge pays
+/// the amount there, less that chain's network fee.
 pub fn plan_withdrawal(
     bridge: &VerifiedBridge,
     from: &Destination,
@@ -115,13 +138,15 @@ pub fn plan_withdrawal(
     amount: u64,
     to: &str,
 ) -> Result<Plan> {
+    let coin = bridge.coin;
     if bridge.signer_change.is_some() {
-        return untrusted(PAUSED_BY_SIGNER_CHANGE);
+        return untrusted(paused_by_signer_change(coin));
     }
     if amount < bridge.min_peg_out {
         return invalid(format!(
-            "the smallest withdrawal is {} BTC; a smaller one is not paid",
-            format_btc(bridge.min_peg_out)
+            "the smallest withdrawal is {} {}; a smaller one is not paid",
+            coin.format_amount(bridge.min_peg_out),
+            coin.ticker()
         ));
     }
     let dest = decode_address(to, &bridge.net)?;
@@ -133,11 +158,11 @@ pub fn plan_withdrawal(
         coins.utxos,
         coins.raw_txs,
         &Request {
-            chain: Chain::Btcvm,
+            chain: coin.vm(),
             to: bridge.peg.clone(),
             amount,
-            data: Some(peg_out_data(&dest)),
-            fee_rate: bridge.btc_fee_rate,
+            data: Some(peg_out_data_for(coin, &dest)),
+            fee_rate: bridge.fee_rate,
         },
     )
 }

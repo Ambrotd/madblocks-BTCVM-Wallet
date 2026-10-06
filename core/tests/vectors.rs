@@ -171,7 +171,7 @@ fn payments_match_byte_for_byte() {
         }
         assert_eq!(
             plan.describe(&MAINNET),
-            describe_outputs(&parsed.outputs, &key.destination(), &MAINNET),
+            describe_outputs(&parsed.outputs, &key.destination(), &MAINNET, Coin::Btc),
             "{}: the review shows exactly what is signed",
             p.name
         );
@@ -301,9 +301,10 @@ fn vector_bridge(v: &Vectors) -> VerifiedBridge {
     let signers = v.deposit.signers.clone();
     let peg = signers.peg().unwrap().address(&MAINNET);
     let pinned = Pinned {
+        coin: Coin::Btc,
         net: MAINNET,
-        bitcoin_network: "mainnet",
-        btcvm_network: "btcvm",
+        l1_network: "mainnet",
+        vm_network: "btcvm",
         chain_id: "test",
         signers: signers.clone(),
     };

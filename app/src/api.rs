@@ -195,6 +195,17 @@ impl Api for Bridge {
     }
 }
 
+/// Where a bridge serves `what` for `chain`: the VMs' under `/api`, each
+/// coin's own chain's under its prefix (BTCVM's bridge serves Bitcoin's,
+/// DogecoinVM's Dogecoin's).
+fn chain_path(chain: Chain, what: &str) -> String {
+    match chain {
+        Chain::Btcvm | Chain::Dogecoinvm => format!("/api/{what}"),
+        Chain::Bitcoin => format!("/api/btc/{what}"),
+        Chain::Dogecoin => format!("/api/doge/{what}"),
+    }
+}
+
 pub struct Bridge {
     base: String,
     agent: ureq::Agent,
@@ -220,14 +231,11 @@ impl Bridge {
         self.get("/api/status")
     }
 
-    /// The address on `chain`. On Bitcoin the bridge answers 404 until the
-    /// address is registered with [`Bridge::watch_bitcoin`].
+    /// The address on `chain`. On Bitcoin (and Dogecoin) the bridge answers
+    /// 404 until the address is registered with [`Bridge::watch_bitcoin`].
     pub fn address(&self, chain: Chain, address: &str) -> Result<AddressView, ApiError> {
         check_address(address)?;
-        self.get(&match chain {
-            Chain::Btcvm => format!("/api/address/{address}"),
-            Chain::Bitcoin => format!("/api/btc/address/{address}"),
-        })
+        self.get(&chain_path(chain, &format!("address/{address}")))
     }
 
     pub fn watch_bitcoin(&self, address: &str) -> Result<(), ApiError> {
@@ -244,11 +252,7 @@ impl Bridge {
         struct Hex {
             hex: String,
         }
-        let path = match chain {
-            Chain::Btcvm => format!("/api/rawtx/{txid}"),
-            Chain::Bitcoin => format!("/api/btc/rawtx/{txid}"),
-        };
-        match self.get::<Hex>(&path) {
+        match self.get::<Hex>(&chain_path(chain, &format!("rawtx/{txid}"))) {
             Ok(h) => Ok(h.hex),
             Err(e) if chain == Chain::Bitcoin && e.status == 404 => {
                 let mut last = e;
@@ -286,11 +290,9 @@ impl Bridge {
         struct Sent {
             txid: String,
         }
-        let path = match chain {
-            Chain::Btcvm => "/api/tx",
-            Chain::Bitcoin => "/api/btc/tx",
-        };
-        Ok(self.post::<Sent>(path, json!({ "hex": hex }))?.txid)
+        Ok(self
+            .post::<Sent>(&chain_path(chain, "tx"), json!({ "hex": hex }))?
+            .txid)
     }
 
     /// Registers the wallet's address for deposits and returns the Bitcoin

@@ -29,7 +29,7 @@ fn the_live_bridge_checks_out() {
         (b.min_deposit, b.max_deposit, b.min_peg_out),
         (10_000, 100_000, 5_000)
     );
-    assert_eq!(b.btc_fee_rate, 2);
+    assert_eq!(b.fee_rate, 2);
 }
 
 #[test]

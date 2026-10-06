@@ -1,8 +1,10 @@
 //! Private keys. The wallet's own address is native SegWit (P2WPKH,
-//! `bc1q…`), the same on Bitcoin and BTCVM.
+//! `bc1q…`), the same on Bitcoin and BTCVM; on Dogecoin and DogecoinVM,
+//! which have no SegWit, it is P2PKH (`D…`).
 
 use crate::address::{Destination, Kind, Network};
 use crate::encoding::{check_decode, check_encode, hash160};
+use crate::payment::Coin;
 use crate::{Result, invalid};
 use k256::ecdsa::SigningKey;
 use zeroize::{Zeroize, Zeroizing};
@@ -75,6 +77,20 @@ impl Key {
     /// The wallet's address: P2WPKH of the compressed public key.
     pub fn destination(&self) -> Destination {
         Destination::new(Kind::P2wpkh, &hash160(&self.public_key())).expect("20 bytes")
+    }
+
+    /// P2PKH of the compressed public key: the wallet's address on Dogecoin
+    /// and DogecoinVM.
+    pub fn p2pkh_destination(&self) -> Destination {
+        Destination::new(Kind::P2pkh, &hash160(&self.public_key())).expect("20 bytes")
+    }
+
+    /// The wallet's address for `coin`'s chains.
+    pub fn destination_for(&self, coin: Coin) -> Destination {
+        match coin {
+            Coin::Btc => self.destination(),
+            Coin::Doge => self.p2pkh_destination(),
+        }
     }
 
     /// The key as a compressed-key WIF, for backup.

@@ -1,12 +1,15 @@
-//! Recovery phrases: BIP 39 words, and the key they make at BIP 84's first
-//! receiving address, m/84'/0'/0'/0/0 (BIP 32). Twelve words restore the
-//! same Bitcoin address in Sparrow, Electrum (as a BIP 39 seed), BlueWallet
-//! and any other wallet that follows those BIPs; on BTCVM, in this wallet.
+//! Recovery phrases: BIP 39 words, and the keys they make (BIP 32): at BIP
+//! 84's first receiving address, m/84'/0'/0'/0/0, for BTC, and at BIP 44's
+//! for Dogecoin, m/44'/3'/0'/0/0, for DOGE. Twelve words restore the same
+//! Bitcoin address in Sparrow, Electrum (as a BIP 39 seed), BlueWallet and
+//! any other wallet that follows those BIPs, and the same Dogecoin address
+//! in Dogecoin wallets that take BIP 39 phrases; on the VMs, in this wallet.
 //!
 //! Only the English list, and no passphrase in the wallet: both keep every
 //! phrase plain ASCII, which BIP 39's NFKD normalization leaves as it is.
 
 use crate::encoding::sha256;
+use crate::payment::Coin;
 use crate::{Error, Key, Result, invalid};
 use hmac::{Hmac, Mac};
 use k256::elliptic_curve::PrimeField;
@@ -27,6 +30,9 @@ pub type Node = (Zeroizing<[u8; 32]>, Zeroizing<[u8; 32]>);
 
 /// BIP 84's first receiving address on Bitcoin: m/84'/0'/0'/0/0.
 pub const BIP84_FIRST: [u32; 5] = [84 | HARDENED, HARDENED, HARDENED, 0, 0];
+/// BIP 44's first receiving address on Dogecoin (coin type 3):
+/// m/44'/3'/0'/0/0.
+pub const BIP44_DOGE_FIRST: [u32; 5] = [44 | HARDENED, 3 | HARDENED, HARDENED, 0, 0];
 
 pub(crate) fn wordlist() -> &'static [&'static str] {
     static WORDS: OnceLock<Vec<&'static str>> = OnceLock::new();
@@ -169,8 +175,18 @@ pub fn extended_key(seed: &[u8], path: &[u32]) -> Result<Node> {
 
 /// The key a phrase's entropy makes at m/84'/0'/0'/0/0.
 pub fn key_from_entropy(entropy: &[u8]) -> Result<Key> {
+    key_for_coin(entropy, Coin::Btc)
+}
+
+/// The key a phrase's entropy makes for `coin`: at m/84'/0'/0'/0/0 for BTC,
+/// at m/44'/3'/0'/0/0 for DOGE.
+pub fn key_for_coin(entropy: &[u8], coin: Coin) -> Result<Key> {
+    let path = match coin {
+        Coin::Btc => &BIP84_FIRST,
+        Coin::Doge => &BIP44_DOGE_FIRST,
+    };
     let phrase = words(entropy)?;
-    let (key, _) = extended_key(&seed(&phrase, "")[..], &BIP84_FIRST)?;
+    let (key, _) = extended_key(&seed(&phrase, "")[..], path)?;
     Key::from_bytes(&key[..])
 }
 

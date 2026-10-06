@@ -1,9 +1,12 @@
-//! Keys, addresses, bridge checks and transactions for Bitcoin and BTCVM.
+//! Keys, addresses, bridge checks and transactions for Bitcoin and BTCVM,
+//! and for Dogecoin and DogecoinVM.
 //!
 //! This is the Windows wallet's counterpart of the BTCVM web wallet's
-//! `chain.js` (MetalBlockchain/btc-vm, `cmd/btcvm/web`), and it must agree
-//! with it byte for byte: `tests/vectors.rs` checks it against vectors the
-//! web wallet generated and btcd's script engine verified.
+//! `chain.js` (MetalBlockchain/btc-vm, `cmd/btcvm/web`) and of DogecoinVM's
+//! (MetalBlockchain/dogecoin-vm, `cmd/dogevm/web`), and it must agree with
+//! them byte for byte: `tests/vectors.rs` and `tests/doge_vectors.rs` check
+//! it against vectors those web wallets generated and btcd's script engine
+//! verified.
 //!
 //! On top of what the web wallet does, it doesn't take the bridge's word for
 //! where coins go. The peg's signer set is pinned ([`bridge::Pinned`]), and
@@ -21,6 +24,7 @@ pub mod address;
 pub mod amount;
 pub mod book;
 pub mod bridge;
+pub mod doge;
 pub mod encoding;
 pub mod keys;
 pub mod payment;
@@ -29,12 +33,13 @@ pub mod seed;
 pub mod tx;
 pub mod wallet;
 
-pub use address::{Destination, Kind, MAINNET, Network, TESTNET, decode_address};
+pub use address::{DOGE_MAINNET, Destination, Kind, MAINNET, Network, TESTNET, decode_address};
 pub use amount::{SATS_PER_BTC, format_btc, parse_btc};
-pub use bridge::{BridgeInfo, Pinned, SignerChange, Signers, VerifiedBridge};
+pub use bridge::{BridgeInfo, DogeBridgeInfo, Pinned, SignerChange, Signers, VerifiedBridge};
+pub use doge::{format_doge, parse_doge};
 pub use keys::Key;
 pub use payment::{
-    Chain, OutputView, Plan, Request, Signed, Utxo, build_payment, max_payment, plan_bump,
+    Chain, Coin, OutputView, Plan, Request, Signed, Utxo, build_payment, max_payment, plan_bump,
     plan_payment, sign_plan,
 };
 pub use wallet::{Coins, plan_deposit, plan_send, plan_withdrawal};

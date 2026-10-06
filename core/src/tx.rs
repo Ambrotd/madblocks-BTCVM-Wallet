@@ -1,5 +1,7 @@
 //! Transactions: SegWit serialization (BIP144), parsing, ids, the BIP143
-//! signature hash and size estimates, as the web wallet's chain.js does them.
+//! signature hash and size estimates, as the web wallet's chain.js does them;
+//! and for Dogecoin, which has no SegWit, the legacy format and signature
+//! hash, as DogecoinVM's chain.js does them.
 
 use crate::encoding::sha256d;
 use crate::{Result, invalid};
@@ -9,6 +11,10 @@ pub(crate) const TX_VERSION: u32 = 2;
 /// Inputs signal replaceability (BIP125), so a Bitcoin payment that stalls
 /// can be sent again with a higher fee.
 pub(crate) const SEQUENCE: u32 = 0xffff_fffd;
+/// Dogecoin and DogecoinVM transactions, as DogecoinVM's chain.js makes
+/// them: version 1, final inputs.
+pub(crate) const LEGACY_TX_VERSION: u32 = 1;
+pub(crate) const LEGACY_SEQUENCE: u32 = 0xffff_ffff;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxOut {
@@ -24,6 +30,9 @@ pub(crate) struct TxIn {
     /// What the coin holds: SegWit signatures commit to it.
     pub value: u64,
     pub sequence: u32,
+    /// A legacy input's signature and key; empty for P2WPKH, which signs in
+    /// the witness.
+    pub script_sig: Vec<u8>,
     pub witness: Vec<Vec<u8>>,
 }
 
@@ -79,7 +88,8 @@ impl Tx {
         varint(self.inputs.len(), &mut b);
         for i in &self.inputs {
             outpoint(i, &mut b);
-            varint(0, &mut b); // no scriptSig: P2WPKH signs in the witness
+            varint(i.script_sig.len(), &mut b);
+            b.extend_from_slice(&i.script_sig);
             b.extend_from_slice(&i.sequence.to_le_bytes());
         }
         varint(self.outputs.len(), &mut b);
@@ -125,6 +135,27 @@ impl Tx {
         pre.extend_from_slice(&input.sequence.to_le_bytes());
         pre.extend_from_slice(&sha256d(&outputs));
         pre.extend_from_slice(&0u32.to_le_bytes()); // lock time
+        pre.extend_from_slice(&1u32.to_le_bytes()); // SIGHASH_ALL
+        sha256d(&pre)
+    }
+}
+
+impl Tx {
+    /// Legacy SIGHASH_ALL for input `index`, spending an output locked by
+    /// `prev_script`: the transaction with that input carrying the script
+    /// and the others none, then the hash type. It doesn't commit to the
+    /// amounts spent, so each coin's value is checked before signing.
+    pub fn legacy_sighash(&self, index: usize, prev_script: &[u8]) -> [u8; 32] {
+        let mut copy = self.clone();
+        for (n, input) in copy.inputs.iter_mut().enumerate() {
+            input.script_sig = if n == index {
+                prev_script.to_vec()
+            } else {
+                Vec::new()
+            };
+            input.witness.clear();
+        }
+        let mut pre = copy.serialize();
         pre.extend_from_slice(&1u32.to_le_bytes()); // SIGHASH_ALL
         sha256d(&pre)
     }
